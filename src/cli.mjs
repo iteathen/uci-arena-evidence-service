@@ -10,6 +10,7 @@ import { enqueueFirstCampaign, jobFingerprint } from "./campaign.mjs";
 import { loadConfig } from "./config.mjs";
 import { runDaemon } from "./daemon.mjs";
 import { sha256File } from "./identity.mjs";
+import { listQualifiedProfiles } from "./profiles.mjs";
 import {
   installStartup,
   startupStatus,
@@ -82,6 +83,7 @@ function usage() {
   arena-evidence dataset list
   arena-evidence dataset show --id UUID
   arena-evidence dataset export --id UUID --out PATH [--format json|jsonl]
+  arena-evidence profile list
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
   arena-evidence startup install|status|uninstall
 
@@ -186,6 +188,8 @@ async function main(argv = process.argv.slice(2)) {
       output(catalog.retryJob(flags.id));
     } else if (command === "dataset" && subcommand === "list") {
       output(catalog.datasets());
+    } else if (command === "profile" && subcommand === "list") {
+      output(listQualifiedProfiles(config, catalog));
     } else if (command === "dataset" && subcommand === "show") {
       if (!flags.id) throw new Error("dataset show requires --id");
       const dataset = catalog.dataset(flags.id);

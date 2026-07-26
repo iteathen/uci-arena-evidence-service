@@ -69,6 +69,17 @@ Only an exact-identity `uci_time_profile_v3` candidate with passing qualifier
 and resource gates can be atomically published. The service never changes a UCI
 default or enables adaptive play.
 
+The public profile projection exposes validated live profiles and any explicitly
+configured in-place imports without reading raw evidence or scanning disks:
+
+```powershell
+node tools/arena_evidence_service/src/cli.mjs profile list --json
+```
+
+`profileImports` in `uci_arena_evidence_service_config_v1` is an array of
+explicit profile-file paths. Imported profiles remain externally owned and are
+never copied, rewritten, or treated as newly qualified for a different runtime.
+
 ## Startup
 
 Windows registers a per-user Task Scheduler logon task through the existing
@@ -103,6 +114,7 @@ node tools/arena_evidence_service/src/cli.mjs pause --reason maintenance
 node tools/arena_evidence_service/src/cli.mjs resume
 node tools/arena_evidence_service/src/cli.mjs job list
 node tools/arena_evidence_service/src/cli.mjs dataset list
+node tools/arena_evidence_service/src/cli.mjs profile list --json
 node tools/arena_evidence_service/src/cli.mjs dataset export --id DATASET_UUID --out evidence.jsonl
 node tools/arena_evidence_service/src/cli.mjs prune --before 2026-01-01T00:00:00Z
 node tools/arena_evidence_service/src/cli.mjs prune --before 2026-01-01T00:00:00Z --confirm PRUNE

@@ -17,6 +17,7 @@ import {
   validateInheritedResourceLease,
 } from "../../../arena/lib/background_resource_lease.mjs";
 import { shutdownChildProcessTree } from "../../../arena/lib/gpu_resource_isolation.mjs";
+import { canonicalJson } from "../../../engine/tools/qualify_uci_time_profile.mjs";
 import { adapterCommand, harvestAdapter } from "../src/adapters.mjs";
 import { Catalog } from "../src/catalog.mjs";
 import { enqueueFirstCampaign, jobFingerprint } from "../src/campaign.mjs";
@@ -32,6 +33,7 @@ import {
   buildWindowsTaskXml,
   linuxUnitName,
 } from "../src/platform_startup.mjs";
+import { listQualifiedProfiles } from "../src/profiles.mjs";
 import { ResourceGovernor } from "../src/resource_governor.mjs";
 
 async function workspace() {
@@ -680,6 +682,117 @@ test("profile publication is atomic, identity-scoped, archived, and authority-ga
       resource: { ...resource, default_tuning_authority: false },
     }),
     /lacks publication authority/,
+  );
+});
+
+test("profile list validates and projects explicit qualified imports", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const identity = {
+    engine: {
+      executable_sha256: `sha256:${"a".repeat(64)}`,
+      engine_build_fingerprint: `sha256:${"b".repeat(64)}`,
+    },
+    model: {
+      model_id: "fixture_model",
+      model_fingerprint: "123456789",
+    },
+    provider: {
+      provider_numeric_fingerprint: "101",
+      hardware_driver_fingerprint: "202",
+      onnx_runtime_version: "1.24.4",
+    },
+    search: {
+      provider_effective: "directml",
+      search_core: "v2",
+      threads: 2,
+      root_workers: 2,
+      split_depth: 2,
+      batch_size_effective: 64,
+      batch_wait_us_effective: 0,
+    },
+  };
+  const profile = {
+    schema: "uci_time_profile_v3",
+    qualified: true,
+    published_at: "2026-07-26T00:00:00.000Z",
+    identity,
+    identity_sha256: `sha256:${createHash("sha256")
+      .update(canonicalJson(identity))
+      .digest("hex")}`,
+    predictive_controller: {
+      default_enabled: false,
+      enabled_by_profile: false,
+    },
+    permissions: {
+      provider_safety_qualified: true,
+      forecast_shadow_qualified: false,
+      adaptive_play_qualified: false,
+    },
+    gates: { passed: true },
+    calibration: {
+      provider_service_reserve_us: 1000,
+      iteration_forecast_scale_permille: 1000,
+      iteration_transitions: {
+        runtime_p95_ms: Array(48).fill(0),
+      },
+    },
+  };
+  const imported = path.join(config.workspace, "imported-profile.json");
+  writeFileSync(imported, `${JSON.stringify(profile)}\n`);
+  config.profileImports = [imported];
+
+  const profiles = listQualifiedProfiles(config, catalog);
+  assert.equal(profiles.length, 1);
+  assert.equal(profiles[0].schema, "uci_arena_evidence_profile_v1");
+  assert.equal(profiles[0].source, "explicit_import");
+  assert.equal(profiles[0].targetIdentity.model_id, "fixture_model");
+  assert.equal(profiles[0].permissions.provider_safety_qualified, true);
+  assert.match(profiles[0].sha256, /^[0-9a-f]{64}$/);
+
+  const activeModelRoot = path.join(config.workspace, "active-model");
+  mkdirSync(activeModelRoot, { recursive: true });
+  config.activeModelPointer = path.join(
+    config.workspace,
+    "manager-config.json",
+  );
+  config.runtimeModelsRoot = path.join(
+    config.workspace,
+    "runtime-models",
+  );
+  writeFileSync(config.activeModelPointer, `${JSON.stringify({
+    model_id: identity.model.model_id,
+    model_fingerprint: identity.model.model_fingerprint,
+    model_root: activeModelRoot,
+    provider: identity.search.provider_effective,
+    engine_path: process.execPath,
+    engine_sha256: sha256File(process.execPath),
+  })}\n`);
+  const live = path.join(
+    config.runtimeModelsRoot,
+    identity.model.model_id,
+    "cache",
+    "uci_time_profile_v3.json",
+  );
+  mkdirSync(path.dirname(live), { recursive: true });
+  writeFileSync(live, `${JSON.stringify({
+    ...profile,
+    published_at: "2026-07-27T00:00:00.000Z",
+  })}\n`);
+  const withLiveProfile = listQualifiedProfiles(config, catalog);
+  assert.equal(withLiveProfile.length, 2);
+  assert.equal(
+    withLiveProfile.filter(
+      (candidate) => candidate.source === "service_live_cache",
+    ).length,
+    1,
+  );
+
+  writeFileSync(imported, `${JSON.stringify({ ...profile, qualified: false })}\n`);
+  assert.throws(
+    () => listQualifiedProfiles(config, catalog),
+    /timing profile is not qualified/,
   );
 });
 

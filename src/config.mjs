@@ -48,6 +48,7 @@ const defaults = {
     process.platform === "win32" ? "book_forge_launcher.exe" : "book_forge_launcher",
   ),
   gpuIsolationAttestation: process.env.UCI_ARENA_GPU_ISOLATION_ATTESTATION?.trim() || "",
+  profileImports: [],
   restaurantRoots: process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
     ? []
     : [path.resolve(sourceRepositoryRoot, "..", "the_restaurant")],
@@ -99,6 +100,13 @@ export function assertSupportedNode() {
 
 function validate(config) {
   if (config.schema !== defaults.schema) throw new Error(`unsupported config schema ${config.schema}`);
+  if (!Array.isArray(config.profileImports)
+      || config.profileImports.length > 64
+      || config.profileImports.some(
+        (entry) => typeof entry !== "string" || !entry.trim(),
+      )) {
+    throw new Error("profileImports must contain at most 64 non-empty file paths");
+  }
   const resources = config.resources;
   const numbers = [
     ["minimumFreeWorkspaceGb", resources.minimumFreeWorkspaceGb, 1, 100_000],
@@ -153,6 +161,9 @@ export async function loadConfig({ configFile, workspace } = {}) {
   config.restaurantRoots = [...new Set((config.restaurantRoots ?? [])
     .map((root) => configuredPath(root, directory))
     .filter((root) => existsSync(root)))];
+  config.profileImports = [...new Set(
+    config.profileImports.map((profile) => configuredPath(profile, directory)),
+  )];
   config.paths = {
     catalog: path.join(config.workspace, "catalog.sqlite"),
     artifacts: path.join(config.workspace, "artifacts"),

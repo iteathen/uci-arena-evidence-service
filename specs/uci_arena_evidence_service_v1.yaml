@@ -67,6 +67,7 @@ runtime:
     - dataset_list
     - dataset_show
     - dataset_export
+    - profile_list
     - prune
     - startup_install
     - startup_status
@@ -204,6 +205,25 @@ time_profile_publication:
     - "The service archives the prior profile and atomically publishes the candidate."
     - "The published profile keeps adaptive_play_qualified=false."
     - "No UCI option or engine default changes as a side effect."
+  public_projection:
+    command: profile_list
+    schema: uci_arena_evidence_profile_v1
+    sources: [service_live_cache, explicit_import]
+    fields:
+      - path
+      - source
+      - sha256
+      - profile_schema
+      - published_at
+      - identity_sha256
+      - target_identity
+      - permissions
+      - service_publication
+    rules:
+      - "Profile list validates the complete stored profile before projecting it."
+      - "Configured imports are explicit non-secret file paths; the service never scans for them."
+      - "A missing or invalid configured import fails visibly instead of being reported as an available profile."
+      - "Live-cache candidates are limited to exact registered target model ids under runtimeModelsRoot."
 
 first_campaign:
   candidate_option: "TimePolicy=RelativeClockV3"

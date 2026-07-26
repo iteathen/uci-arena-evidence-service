@@ -16,7 +16,7 @@
     {"source": "release/PROJECT-LICENSE-NOTICE.txt", "target": "licenses/LICENSE.txt"}
   ],
   "entrypoints": {"cli": "tools/arena_evidence_service/src/cli.mjs"},
-  "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "startup_install", "startup_uninstall"],
+  "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "profile_list", "startup_install", "startup_uninstall"],
   "startup": {"windows": "per_user_task_scheduler", "linux": "per_user_systemd"},
   "data_paths": ["workspace"],
   "dependency_lock_identities": {"node": ">=24.15.0"},
