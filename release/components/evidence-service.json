@@ -7,6 +7,7 @@
     {"source": "tools/arena_evidence_service/fixtures", "target": "tools/arena_evidence_service/fixtures"},
     {"source": "tools/arena_evidence_service/package.json", "target": "tools/arena_evidence_service/package.json"},
     {"source": "tools/arena_evidence_service/README.md", "target": "tools/arena_evidence_service/README.md"},
+    {"source": "tools/book_forge/src/native_helper.mjs", "target": "tools/book_forge/src/native_helper.mjs"},
     {"source": "arena/run_sprt_match.mjs", "target": "arena/run_sprt_match.mjs"},
     {"source": "arena/run_complete_game_matrix.mjs", "target": "arena/run_complete_game_matrix.mjs"},
     {"source": "arena/lib", "target": "arena/lib"},
