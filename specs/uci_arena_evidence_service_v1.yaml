@@ -242,3 +242,18 @@ validation:
     - windows_task_scheduler_contract_test
     - linux_systemd_user_unit_contract_test
     - windows_job_object_and_linux_process_group_cleanup_tests
+
+relocatable_install:
+  package_root: derived_from_import_meta
+  runtime_root: explicit_UCI_ARENA_EVIDENCE_RUNTIME_ROOT_or_source_checkout_fallback
+  repository_checkout_required: false
+  packaged_runtime:
+    - engine/tools/qualify_uci_time_profile.mjs
+    - arena/run_sprt_match.mjs
+    - arena/run_complete_game_matrix.mjs
+    - flashfork_complete_game_referee
+  rules:
+    - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
+    - "Startup registrations use packageRoot as WorkingDirectory."
+    - "Engine, Stockfish, model, referee, and runner locations remain explicit typed configuration."
+    - "Restaurant locations are detection-only and are never inferred from the installed component parent."

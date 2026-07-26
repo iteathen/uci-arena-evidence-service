@@ -1,0 +1,23 @@
+{
+  "schema": "arena_provider_component_definition_v1",
+  "component_id": "uci_arena_evidence.service",
+  "source_repository": "iteathen/UCI_Arena",
+  "include": [
+    {"source": "tools/arena_evidence_service/src", "target": "tools/arena_evidence_service/src"},
+    {"source": "tools/arena_evidence_service/fixtures", "target": "tools/arena_evidence_service/fixtures"},
+    {"source": "tools/arena_evidence_service/package.json", "target": "tools/arena_evidence_service/package.json"},
+    {"source": "tools/arena_evidence_service/README.md", "target": "tools/arena_evidence_service/README.md"},
+    {"source": "arena/run_sprt_match.mjs", "target": "arena/run_sprt_match.mjs"},
+    {"source": "arena/run_complete_game_matrix.mjs", "target": "arena/run_complete_game_matrix.mjs"},
+    {"source": "arena/lib", "target": "arena/lib"},
+    {"source": "engine/tools/qualify_uci_time_profile.mjs", "target": "engine/tools/qualify_uci_time_profile.mjs"},
+    {"source": "provider_stage/evidence_runtime", "target": "."},
+    {"source": "release/PROJECT-LICENSE-NOTICE.txt", "target": "licenses/LICENSE.txt"}
+  ],
+  "entrypoints": {"cli": "tools/arena_evidence_service/src/cli.mjs"},
+  "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "startup_install", "startup_uninstall"],
+  "startup": {"windows": "per_user_task_scheduler", "linux": "per_user_systemd"},
+  "data_paths": ["workspace"],
+  "dependency_lock_identities": {"node": ">=24.15.0"},
+  "tests": ["evidence_service_tests", "idle_acceptance", "packaged_runner_resolution"]
+}

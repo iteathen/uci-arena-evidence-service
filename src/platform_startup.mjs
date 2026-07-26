@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { repositoryRoot } from "./config.mjs";
+import { packageRoot } from "./config.mjs";
 
 const execFileAsync = promisify(execFile);
 export const windowsTaskName = "UCI Arena Evidence Service";
@@ -34,7 +34,7 @@ export function windowsStartupAction(config) {
   return {
     command: path.resolve(config.nativeLauncher),
     arguments: daemonArguments(config).map(quoteWindowsArgument).join(" "),
-    workingDirectory: repositoryRoot,
+    workingDirectory: packageRoot,
   };
 }
 
@@ -91,7 +91,7 @@ After=default.target
 [Service]
 Type=simple
 ExecStart=${command}
-WorkingDirectory=${systemdQuote(repositoryRoot)}
+WorkingDirectory=${systemdQuote(packageRoot)}
 Restart=on-failure
 RestartSec=60
 Nice=15

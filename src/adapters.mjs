@@ -9,7 +9,6 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { repositoryRoot } from "./config.mjs";
 import { targetIdentity } from "./identity.mjs";
 
 const OUTPUT_SCHEMAS = Object.freeze({
@@ -132,7 +131,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
     const candidate = path.join(jobWorkspace, "uci_time_profile_candidate.json");
     const checkpoint = path.join(jobWorkspace, "uci_time_profile_checkpoint.json");
     const args = [
-      path.join(repositoryRoot, "engine", "tools", "qualify_uci_time_profile.mjs"),
+      path.join(config.runtimeRoot, "engine", "tools", "qualify_uci_time_profile.mjs"),
       "qualify",
       "--engine", target.enginePath,
       "--model-root", target.modelRoot,
@@ -221,7 +220,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
     const pairIndex = integer(value.pairIndex, 0, 0, 1_000_000, "pairIndex");
     const stockfishAnchor = evidenceMode === "stockfish_anchor";
     const args = [
-      path.join(repositoryRoot, "arena", "run_sprt_match.mjs"),
+      path.join(config.runtimeRoot, "arena", "run_sprt_match.mjs"),
       "--engine", target.enginePath,
       "--stockfish", config.stockfish,
       "--referee", config.referee,
@@ -290,7 +289,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
   }
   const output = path.join(jobWorkspace, "complete_game.json");
   const args = [
-    path.join(repositoryRoot, "arena", "run_complete_game_matrix.mjs"),
+    path.join(config.runtimeRoot, "arena", "run_complete_game_matrix.mjs"),
     "--engine", target.enginePath,
     "--stockfish", config.stockfish,
     "--referee", config.referee,

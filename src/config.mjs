@@ -5,7 +5,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-export const repositoryRoot = path.resolve(packageRoot, "..", "..");
+const sourceRepositoryRoot = path.resolve(packageRoot, "..", "..");
+export const runtimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
+  ? path.resolve(process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT)
+  : sourceRepositoryRoot;
+export const repositoryRoot = runtimeRoot;
 
 function defaultWorkspace() {
   if (process.platform === "win32") return "E:/uci-arena-evidence";
@@ -21,40 +25,32 @@ function executable(root, windowsName, unixName) {
 const defaults = {
   schema: "uci_arena_evidence_service_config_v1",
   workspace: process.env.UCI_ARENA_EVIDENCE_ROOT || defaultWorkspace(),
-  activeModelPointer: path.join(repositoryRoot, "runtime_state", "active_model_runtime.json"),
-  runtimeModelsRoot: path.join(repositoryRoot, "runtime_state", "models"),
+  activeModelPointer: path.join(runtimeRoot, "runtime_state", "active_model_runtime.json"),
+  runtimeModelsRoot: path.join(runtimeRoot, "runtime_state", "models"),
   engine: process.env.UCI_ARENA_ENGINE?.trim()
-    || executable(repositoryRoot, "build/Release/flashfork_uci.exe", "build/flashfork_uci"),
+    || executable(runtimeRoot, "bin/flashfork_uci.exe", "bin/flashfork_uci"),
   stockfish: process.env.UCI_ARENA_STOCKFISH?.trim()
-    || executable(repositoryRoot, "third_party/bin/stockfish.exe", "third_party/bin/stockfish"),
+    || executable(runtimeRoot, "bin/stockfish.exe", "bin/stockfish"),
   referee: process.env.UCI_ARENA_REFEREE?.trim()
     || executable(
-      repositoryRoot,
-      "build/Release/flashfork_complete_game_referee.exe",
-      "build/flashfork_complete_game_referee",
+      runtimeRoot,
+      "bin/flashfork_complete_game_referee.exe",
+      "bin/flashfork_complete_game_referee",
     ),
   nativeHelper: path.join(
-    repositoryRoot,
-    "tools",
-    "book_forge",
-    "native",
-    "build",
-    "Release",
-    "book_forge_guard.exe",
+    runtimeRoot,
+    "bin",
+    process.platform === "win32" ? "book_forge_guard.exe" : "book_forge_guard",
   ),
   nativeLauncher: path.join(
-    repositoryRoot,
-    "tools",
-    "book_forge",
-    "native",
-    "build",
-    "Release",
-    "book_forge_launcher.exe",
+    runtimeRoot,
+    "bin",
+    process.platform === "win32" ? "book_forge_launcher.exe" : "book_forge_launcher",
   ),
   gpuIsolationAttestation: process.env.UCI_ARENA_GPU_ISOLATION_ATTESTATION?.trim() || "",
-  restaurantRoots: [
-    path.resolve(repositoryRoot, "..", "the_restaurant"),
-  ],
+  restaurantRoots: process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
+    ? []
+    : [path.resolve(sourceRepositoryRoot, "..", "the_restaurant")],
   resources: {
     minimumFreeWorkspaceGb: 75,
     pauseAvailableMemoryGb: 6,
@@ -137,7 +133,8 @@ export async function loadConfig({ configFile, workspace } = {}) {
   }
   const config = merge(structuredClone(defaults), loaded);
   config.configFile = configFile ? path.resolve(configFile) : null;
-  config.repositoryRoot = repositoryRoot;
+  config.repositoryRoot = runtimeRoot;
+  config.runtimeRoot = runtimeRoot;
   config.workspace = path.resolve(
     workspace ?? process.env.UCI_ARENA_EVIDENCE_ROOT ?? config.workspace,
   );

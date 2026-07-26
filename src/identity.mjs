@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { repositoryRoot } from "./config.mjs";
+import { runtimeRoot } from "./config.mjs";
 
 export function sha256File(filename) {
   const digest = createHash("sha256");
@@ -123,5 +123,5 @@ export function resolveJobTarget(job, catalog, config) {
 }
 
 export function repositoryRelative(filename) {
-  return path.relative(repositoryRoot, filename).replaceAll("\\", "/");
+  return path.relative(runtimeRoot, filename).replaceAll("\\", "/");
 }
