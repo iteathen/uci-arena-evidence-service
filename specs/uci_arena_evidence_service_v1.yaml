@@ -1,0 +1,244 @@
+spec:
+  id: uci_arena_evidence_service_v1
+  version: 1
+  status: active
+  owner: tools/arena_evidence_service
+  purpose: >
+    Run existing UCI Arena timing, match, and qualification tools as durable,
+    identity-bound background jobs without moving chess, UCI, search, referee,
+    or statistical authority into the service.
+
+ownership:
+  service:
+    - target_resolution
+    - durable_job_queue
+    - idle_resource_admission
+    - background_lease
+    - subprocess_lifecycle
+    - raw_artifact_retention
+    - observation_normalization
+    - dataset_manifests
+    - qualified_time_profile_publication
+  existing_tools:
+    arena_run_sprt_match: node_clocked_game_controller_and_paired_sprt_math
+    arena_run_complete_game_matrix: bounded_complete_game_diagnostic
+    flashfork_complete_game_referee: cpp_legal_move_and_terminal_state_authority
+    engine_qualify_uci_time_profile: timing_sample_validation_and_profile_construction
+    arena_gpu_resource_isolation: performance_and_strength_resource_authority
+  forbidden:
+    - second_chess_controller
+    - second_uci_protocol_implementation
+    - arbitrary_queued_commands
+    - training_or_match_hot_path_imports
+    - automatic_uci_default_changes
+    - automatic_adaptive_play_promotion
+    - python_service_or_adapter_runtime
+
+runtime:
+  language: node
+  implementation_languages: [node, cpp]
+  node_execution: jit
+  ui_language_if_added_later: react
+  minimum_node: 24.15.0
+  supported_platforms: [windows, linux]
+  default_workspace:
+    windows: "E:/uci-arena-evidence"
+    linux: "${XDG_STATE_HOME:-$HOME/.local/state}/uci-arena-evidence"
+  workspace_environment: UCI_ARENA_EVIDENCE_ROOT
+  startup:
+    windows: per_user_windows_task_scheduler_logon_task
+    linux: systemd_user_service
+  single_instance: true
+  heartbeat_seconds: 15
+  stale_seconds: 300
+  commands:
+    - init
+    - daemon
+    - status
+    - pause
+    - resume
+    - target_add
+    - target_list
+    - target_remove
+    - job_enqueue
+    - job_list
+    - job_cancel
+    - job_retry
+    - dataset_list
+    - dataset_show
+    - dataset_export
+    - prune
+    - startup_install
+    - startup_status
+    - startup_uninstall
+
+target_resolution:
+  active_pointer: runtime_state/active_model_runtime.json
+  explicit_targets: true
+  identity_fields:
+    - model_id
+    - model_root
+    - model_fingerprint
+    - engine_path
+    - engine_sha256
+    - provider
+    - hardware_driver_fingerprint
+    - uci_options
+  rules:
+    - "An absent active pointer and empty explicit target queue is a healthy waiting state."
+    - "Identity drift after enqueue invalidates the attempt and returns the job to waiting_for_target."
+    - "No target field may be guessed from a filename."
+
+catalog:
+  implementation: sqlite_single_writer
+  schema: uci_arena_evidence_catalog_v1
+  job_states: [queued, waiting_for_target, waiting_for_resources, running, completed, failed, cancelled]
+  raw_storage: immutable_content_addressed_files
+  observation_schema: uci_arena_observation_envelope_v1
+  dataset_schema: uci_arena_evidence_dataset_v1
+  status_schema: uci_arena_evidence_status_v1
+  retention:
+    policy: lossless_until_explicit_audited_prune
+    minimum_free_workspace_gib: 75
+    pressure_behavior: pause_writes
+  rules:
+    - "Every raw artifact is hashed before catalog insertion."
+    - "Atomic rename publishes manifests, control state, status, and profile candidates."
+    - "Interrupted and contaminated attempts remain visible but never become authoritative observations."
+    - "Prune requires an explicit before timestamp and confirmation token and emits an audit record."
+
+observation_envelope:
+  required:
+    - schema
+    - observation_id
+    - dataset_id
+    - job_id
+    - shard_id
+    - recorded_at
+    - adapter
+    - source_schema
+    - raw_sha256
+    - target_identity
+    - axes
+    - metrics
+    - outcome
+    - resource
+    - authority
+  authority:
+    fields: [diagnostic, timing, strength, profile_publication, reasons]
+    rule: >
+      Timing, strength, and profile-publication authority require a clean,
+      complete resource interval plus the tool-specific correctness and
+      statistical gates. Shared, missing, expired, interrupted, identity-drifted,
+      or contaminated evidence is diagnostic only.
+
+resource_coordination:
+  lease_schema: uci_arena_background_resource_lease_v1
+  scope: host_account_global_os_temp
+  priority: [foreground_restaurant_or_arena, heavy_background_fifo]
+  background_producers: [uci_arena_evidence_service, book_forge]
+  courtesy_book_forge_work: [acquisition, status, integration_publication, qualified_publication]
+  heavy_book_forge_work: [stockfish_analysis, ingestion_and_maintenance]
+  service_concurrency: 1
+  sampling_interval_ms: 1000
+  revocation_abort_ms: 2000
+  start_thresholds:
+    consecutive_idle_samples: 3
+    input_idle_ms: 60000
+    maximum_cpu_used_percent: 20
+    maximum_gpu_used_percent: 5
+    maximum_memory_used_percent: 70
+    minimum_available_memory_gib: 6
+    minimum_free_workspace_gib: 75
+  hard_stops:
+    - operator_pause
+    - foreground_lease_request
+    - restaurant_owner_active
+    - unowned_flashfork_process
+    - configured_priority_process
+    - battery_or_battery_saver
+    - thermal_or_power_limit
+    - memory_pressure
+    - disk_pressure
+  rules:
+    - "Low impact is achieved through admission, one-shard concurrency, low OS priority, and immediate revocation; target topology is never silently throttled."
+    - "Foreground requests preempt background holders and must become runnable within two seconds."
+    - "A lease contains pid, producer, nonce, heartbeat, priority, and inherited token; dead-owner leases are recoverable."
+    - "A service child validates the inherited token instead of creating a competing foreground request."
+    - "The complete child process tree is terminated on revocation or daemon death."
+    - "Windows uses the native Job Object/EcoQoS helper when available and otherwise remains functional with portable low-priority controls."
+    - "Linux uses a systemd user service with Nice=15, CPUWeight=10, IOWeight=10, OOMScoreAdjust=500, KillMode=control-group, and process-group cleanup for direct runs."
+    - "Platform startup registration, process enumeration, executable defaults, and user-idle probes live behind platform adapters; catalog and evidence schemas are identical."
+
+adapters:
+  allowlist:
+    timing_profile:
+      tool: engine/tools/qualify_uci_time_profile.mjs
+      output_schemas: [uci_time_profile_attempt_v3, uci_time_profile_v3]
+    paired_sprt:
+      tool: arena/run_sprt_match.mjs
+      output_schemas: [uci_arena_paired_sprt_v1]
+    complete_game:
+      tool: arena/run_complete_game_matrix.mjs
+      output_schemas: [uci_arena_complete_game_matrix_v3]
+  rules:
+    - "Adapters construct arguments from validated typed job fields only."
+    - "Unknown adapters, flags, schemas, and identity fields fail closed."
+    - "Service adapters execute Node entrypoints and C++ binaries only."
+    - "The Node paired runner owns deterministic manifests, clock controls, checkpoint/resume, and single-game shards while the C++ referee owns chess legality and terminal state."
+    - "Complete-game matrix outputs remain diagnostic-only."
+    - "Max-ply adjudications, incomplete color pairs, engine failures, and aborted games have no strength authority."
+
+time_profile_publication:
+  filename: uci_time_profile_v3.json
+  candidate_mode: required
+  requirements:
+    - exact_target_identity
+    - qualifier_internal_gates_passed
+    - provider_safety_qualified
+    - clean_resource_interval
+    - resource_profile_publication_authority
+    - active_or_explicit_target_still_current
+  rules:
+    - "The qualifier candidate mode cannot write the live cache."
+    - "The service archives the prior profile and atomically publishes the candidate."
+    - "The published profile keeps adaptive_play_qualified=false."
+    - "No UCI option or engine default changes as a side effect."
+
+first_campaign:
+  candidate_option: "TimePolicy=RelativeClockV3"
+  control_option: executable_declared_default
+  core_time_controls: ["30+0", "60+2", "180+0", "180+3"]
+  staged_time_controls: ["40/120+5"]
+  stockfish_depths: [8, 10, 12, 14]
+  order:
+    - deadline_and_provider_qualification
+    - clocked_time_use_curve
+    - paired_candidate_control_strength
+    - fixed_identity_stockfish_anchors
+    - staged_control
+  rules:
+    - "Every strength opening is played with reversed colors."
+    - "Candidate/control pairs differ only in the declared experimental UCI options."
+    - "Stockfish identity, net, threads, hash, options, and depth are recorded."
+    - "Small or incomplete samples are retained without strength conclusions."
+
+validation:
+  required:
+    - config_catalog_and_schema_unit_tests
+    - target_identity_and_drift_tests
+    - resource_threshold_and_lease_contention_tests
+    - foreground_preemption_under_two_seconds
+    - process_tree_cleanup
+    - crash_resume_without_duplicate_authority
+    - adapter_fixture_contract_tests
+    - canonical_history_and_color_pair_tests
+    - qualifier_candidate_publication_tests
+    - contaminated_interval_diagnostic_only_tests
+    - audited_prune_tests
+    - idle_daemon_cpu_below_one_percent
+    - idle_daemon_rss_at_most_150_mib
+    - foreground_training_and_match_regression_at_most_two_percent
+    - windows_task_scheduler_contract_test
+    - linux_systemd_user_unit_contract_test
+    - windows_job_object_and_linux_process_group_cleanup_tests

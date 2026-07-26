@@ -1,0 +1,12 @@
+{
+  "schema": "uci_arena_evidence_service_config_v1",
+  "resources": {
+    "minimumFreeWorkspaceGb": 75,
+    "pauseAvailableMemoryGb": 6,
+    "maximumUsedMemoryPercent": 70,
+    "maximumUsedCpuPercent": 20,
+    "maximumGpuUtilPercent": 5,
+    "inputIdleMs": 60000,
+    "consecutiveIdleSamples": 3
+  }
+}

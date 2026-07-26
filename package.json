@@ -1,0 +1,16 @@
+{
+  "name": "@uci-arena/evidence-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "bin": {
+    "arena-evidence": "src/cli.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "acceptance:idle": "node fixtures/idle_acceptance.mjs"
+  }
+}
