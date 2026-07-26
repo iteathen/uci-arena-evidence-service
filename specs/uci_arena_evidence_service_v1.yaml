@@ -185,6 +185,7 @@ adapters:
   rules:
     - "Adapters construct arguments from validated typed job fields only."
     - "Unknown adapters, flags, schemas, and identity fields fail closed."
+    - "A recognized adapter artifact that records producer failures is rejected with the exact producer failure before source-identity normalization; secondary missing-identity diagnostics must not mask the originating failure."
     - "Service adapters execute Node entrypoints and C++ binaries only."
     - "The Node paired runner owns deterministic manifests, clock controls, checkpoint/resume, and single-game shards while the C++ referee owns chess legality and terminal state."
     - "Complete-game matrix outputs remain diagnostic-only."

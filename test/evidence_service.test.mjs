@@ -454,6 +454,16 @@ test("Node paired adapter normalizes only a complete reversed-color pair as stre
   assert.equal(diagnostic.envelopes[0].authority.strength, false);
   assert.match(diagnostic.envelopes[0].authority.reasons.join(","), /attestation/);
 
+  writeFileSync(command.outputs[0].filename, `${JSON.stringify({
+    ...record,
+    runtime_identity: null,
+    failures: [{ message: "candidate.model_id expected fixture_model got other_model" }],
+  })}\n`);
+  assert.throws(
+    () => harvestAdapter(job, target, command, config, catalog, resourceAuthority()),
+    /adapter paired_sprt reported failure: candidate\.model_id expected fixture_model got other_model/,
+  );
+
   writeFileSync(command.outputs[0].filename, `${JSON.stringify({ schema: "incompatible_schema_v99" })}\n`);
   assert.throws(
     () => harvestAdapter(job, target, command, config, catalog, resourceAuthority()),

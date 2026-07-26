@@ -499,6 +499,15 @@ function validateAdapterRecords(job, records, target) {
         `adapter ${job.adapter} produced incompatible schema ${sourceSchema || "<missing>"}`,
       );
     }
+    if (Array.isArray(record.failures) && record.failures.length > 0) {
+      const failures = record.failures.map((failure) => {
+        if (typeof failure === "string") return failure;
+        return String(failure?.message ?? JSON.stringify(failure));
+      });
+      throw new Error(
+        `adapter ${job.adapter} reported failure: ${failures.join("; ")}`,
+      );
+    }
     validateSourceIdentity(job, record, records, target);
   }
 }
