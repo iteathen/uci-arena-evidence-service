@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
 project(uci_arena_evidence_referee LANGUAGES CXX)
 
+if(MSVC)
+  set(CMAKE_INSTALL_SYSTEM_RUNTIME_DESTINATION bin)
+  set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
+  include(InstallRequiredSystemLibraries)
+endif()
+
 get_filename_component(
   UCI_ARENA_REPOSITORY_ROOT
   "${CMAKE_CURRENT_LIST_DIR}/../../.."
@@ -33,3 +39,5 @@ else()
     flashfork_complete_game_referee PRIVATE -Wall -Wextra -Wpedantic
   )
 endif()
+
+install(TARGETS flashfork_complete_game_referee RUNTIME DESTINATION bin)
