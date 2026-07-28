@@ -139,6 +139,11 @@ test("first campaign is deterministic and staged after core controls", async (t)
   assert.equal(jobs.length, 46);
   assert.equal(jobs[0].adapter, "timing_profile");
   assert.equal(jobs[0].config.repetitions, 30);
+  assert.deepEqual(jobs[0].config.engineOptions, []);
+  assert.ok(jobs.some((job) => (
+    job.config.candidateOptions?.includes("McgsTemporalWeightProfile=AdaptiveCurveV1")
+    && job.config.controlOptions?.includes("McgsTemporalWeightProfile=EarlyCurrent")
+  )));
   assert.ok(jobs.some((job) => job.shardId === "curve-40/120+5" && job.priority === 60));
   assert.ok(jobs.some((job) => job.shardId === "stockfish-180+3-depth14"));
   assert.equal(new Set(jobs.map((job) => job.fingerprint)).size, jobs.length);
@@ -146,6 +151,58 @@ test("first campaign is deterministic and staged after core controls", async (t)
   assert.equal(repeated.length, 46);
   assert.equal(catalog.jobs().length, 46);
   assert.equal(catalog.datasets().length, 46);
+});
+
+test("timing adapter projects the exact MCGS topology without legacy policy injection", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const fixture = targetFixture(config);
+  fixture.uciOptions = {
+    SearchCore: "mcgs",
+    Threads: 3,
+    RootWorkers: 3,
+    V2SplitDepth: 10,
+    SearchGraphMB: 768,
+    McgsCpuctPermille: 1_700,
+    McgsOutstandingBatches: 3,
+    McgsBookPriorBlendPermille: 200,
+    McgsTimePolicy: "RelativeClockTemporalV1",
+    NNBatchSize: 64,
+    NNBatchWaitUs: 25,
+  };
+  const target = catalog.addTarget(fixture);
+  const datasetId = catalog.createDataset({ campaign: "test" });
+  const job = catalog.enqueueJob({
+    adapter: "timing_profile",
+    targetId: target.id,
+    shardId: "mcgs-timing",
+    datasetId,
+    config: { repetitions: 3, engineOptions: [] },
+    fingerprint: jobFingerprint({ test: "mcgs-timing-command" }),
+  });
+  const command = adapterCommand(
+    job,
+    target,
+    config,
+    path.join(config.paths.attempts, job.id, "0001"),
+  );
+  const joined = command.args.join(" ");
+  assert.match(joined, /--search-core mcgs/);
+  assert.match(joined, /--search-graph-mb 768/);
+  assert.match(joined, /--mcgs-cpuct-permille 1700/);
+  assert.match(joined, /--mcgs-outstanding-batches 3/);
+  assert.match(joined, /--mcgs-book-prior-blend-permille 200/);
+  assert.doesNotMatch(joined, /RelativeClockV3|TimePolicy=/);
+
+  const invalidTarget = {
+    ...target,
+    uciOptions: { ...target.uciOptions, McgsTimePolicy: "Legacy" },
+  };
+  assert.throws(
+    () => adapterCommand(job, invalidTarget, config, path.join(config.workspace, "invalid")),
+    /McgsTimePolicy must be RelativeClockTemporalV1/,
+  );
 });
 
 test("active and explicit targets fail closed on missing identity and drift", async (t) => {
@@ -374,7 +431,8 @@ test("Node paired adapter normalizes only a complete reversed-color pair as stre
       control: "30+0",
       maxPairs: 1,
       pairIndex: 0,
-      candidateOptions: ["TimePolicy=RelativeClockV3"],
+      candidateOptions: ["McgsTemporalWeightProfile=AdaptiveCurveV1"],
+      controlOptions: ["McgsTemporalWeightProfile=EarlyCurrent"],
     },
     fingerprint: jobFingerprint({ test: "normalize" }),
   });
@@ -403,7 +461,7 @@ test("Node paired adapter normalizes only a complete reversed-color pair as stre
   });
   const games = [game("pair-0-game-0", 0, "white", "1-0"), game("pair-0-game-1", 1, "black", "0-1")];
   const record = {
-    schema: "uci_arena_paired_sprt_v1",
+    schema: "uci_arena_paired_sprt_v2",
     run_fingerprint: "fixture",
     time_control: { source: "30+0", initial_ms: 30_000, increment_ms: 0 },
     opponent: { kind: "engine" },
@@ -700,6 +758,7 @@ test("profile list validates and projects explicit qualified imports", async (t)
   const catalog = new Catalog(config);
   closeWorkspaceAfter(t, config, catalog);
   const identity = {
+    time_policy_version: "persistent_mcgs_relative_clock_temporal_v4",
     engine: {
       executable_sha256: `sha256:${"a".repeat(64)}`,
       engine_build_fingerprint: `sha256:${"b".repeat(64)}`,
@@ -715,12 +774,15 @@ test("profile list validates and projects explicit qualified imports", async (t)
     },
     search: {
       provider_effective: "directml",
-      search_core: "v2",
+      search_core: "mcgs",
       threads: 2,
       root_workers: 2,
       split_depth: 2,
       batch_size_effective: 64,
       batch_wait_us_effective: 0,
+      mcgs: {
+        time_policy: "RelativeClockTemporalV1",
+      },
     },
   };
   const profile = {
@@ -742,10 +804,18 @@ test("profile list validates and projects explicit qualified imports", async (t)
     },
     gates: { passed: true },
     calibration: {
-      provider_service_reserve_us: 1000,
+      provider_batch_reserve_us: 1000,
+      backup_emit_reserve_us: 1000,
       iteration_forecast_scale_permille: 1000,
       iteration_transitions: {
         runtime_p95_ms: Array(48).fill(0),
+      },
+    },
+    applicability: {
+      move_overhead_ms: {
+        minimum: 250,
+        maximum: 1500,
+        tested_values: [250, 650, 700, 1500],
       },
     },
   };

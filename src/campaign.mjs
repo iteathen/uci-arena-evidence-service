@@ -57,7 +57,7 @@ export function enqueueFirstCampaign(catalog, { targetId = null } = {}) {
     priority: 100,
     config: {
       repetitions: 30,
-      engineOptions: ["TimePolicy=RelativeClockV3"],
+      engineOptions: [],
     },
   }));
   for (const [controlIndex, control] of CORE_CONTROLS.entries()) {
@@ -72,7 +72,8 @@ export function enqueueFirstCampaign(catalog, { targetId = null } = {}) {
         maxPairs: 1,
         pairIndex: controlIndex,
         maxPlies: 16,
-        candidateOptions: ["TimePolicy=RelativeClockV3"],
+        candidateOptions: ["McgsTemporalWeightProfile=AdaptiveCurveV1"],
+        controlOptions: ["McgsTemporalWeightProfile=EarlyCurrent"],
       },
     }));
     for (const [openingIndex, openingId] of OPENING_SHARDS.entries()) {
@@ -89,8 +90,8 @@ export function enqueueFirstCampaign(catalog, { targetId = null } = {}) {
           pairIndex: controlIndex * OPENING_SHARDS.length + openingIndex,
           maxPlies: 600,
           adjudicationCp: 10_000,
-          candidateOptions: ["TimePolicy=RelativeClockV3"],
-          controlOptions: [],
+          candidateOptions: ["McgsTemporalWeightProfile=AdaptiveCurveV1"],
+          controlOptions: ["McgsTemporalWeightProfile=EarlyCurrent"],
         },
       }));
     }
@@ -127,7 +128,8 @@ export function enqueueFirstCampaign(catalog, { targetId = null } = {}) {
         maxPairs: 1,
         pairIndex: CORE_CONTROLS.length + controlIndex,
         maxPlies: 16,
-        candidateOptions: ["TimePolicy=RelativeClockV3"],
+        candidateOptions: ["McgsTemporalWeightProfile=AdaptiveCurveV1"],
+        controlOptions: ["McgsTemporalWeightProfile=EarlyCurrent"],
       },
     }));
     for (const [openingIndex, openingId] of OPENING_SHARDS.entries()) {
@@ -144,8 +146,8 @@ export function enqueueFirstCampaign(catalog, { targetId = null } = {}) {
           pairIndex: pairBase + openingIndex,
           maxPlies: 600,
           adjudicationCp: 10_000,
-          candidateOptions: ["TimePolicy=RelativeClockV3"],
-          controlOptions: [],
+          candidateOptions: ["McgsTemporalWeightProfile=AdaptiveCurveV1"],
+          controlOptions: ["McgsTemporalWeightProfile=EarlyCurrent"],
         },
       }));
     }

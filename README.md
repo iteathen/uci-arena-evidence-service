@@ -46,8 +46,10 @@ node tools/arena_evidence_service/src/cli.mjs job enqueue --campaign first --tar
 ```
 
 It runs deadline/provider qualification, the `30+0`, `60+2`, `180+0`, and
-`180+3` time-use curve, paired `RelativeClockV3` versus current-policy games,
-fixed-identity Stockfish depth 8/10/12/14 anchors, and finally `40/120+5`.
+`180+3` time-use curve, paired offline `AdaptiveCurveV1` versus `EarlyCurrent`
+games, fixed-identity Stockfish depth 8/10/12/14 anchors, and finally
+`40/120+5`. Campaign evidence cannot displace the tracked `EarlyCurrent` live
+authority by itself.
 
 ## Background resource behavior
 

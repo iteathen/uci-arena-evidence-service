@@ -13,7 +13,7 @@ import { targetIdentity } from "./identity.mjs";
 
 const OUTPUT_SCHEMAS = Object.freeze({
   timing_profile: new Set(["uci_time_profile_v3"]),
-  paired_sprt: new Set(["uci_arena_paired_sprt_v1"]),
+  paired_sprt: new Set(["uci_arena_paired_sprt_v2"]),
   complete_game: new Set(["uci_arena_complete_game_matrix_v3"]),
 });
 const ADAPTERS = new Set(Object.keys(OUTPUT_SCHEMAS));
@@ -22,6 +22,11 @@ const QUALIFIER_OWNED_OPTIONS = new Set([
   "Threads",
   "RootWorkers",
   "V2SplitDepth",
+  "SearchGraphMB",
+  "McgsCpuctPermille",
+  "McgsOutstandingBatches",
+  "McgsBookPriorBlendPermille",
+  "McgsTimePolicy",
   "BackgroundSearch",
   "NNSpeculation",
   "ModelRoot",
@@ -30,8 +35,8 @@ const QUALIFIER_OWNED_OPTIONS = new Set([
   "OnnxProvider",
   "IterativeTimeController",
   "TimeProfileProviderReserveUs",
+  "TimeProfileBackupEmitReserveUs",
   "TimeProfileIterationForecastScalePermille",
-  "TimeProfileIterationTransitionP95Ms",
   "Move Overhead",
   "Ponder",
   "OwnBook",
@@ -123,10 +128,21 @@ export function adapterCommand(job, target, config, attemptDirectory) {
     UCI_ARENA_ONNX_PROVIDER: target.provider,
   };
   if (job.adapter === "timing_profile") {
+    const searchCore = String(targetOption(target, "SearchCore", value.searchCore ?? "legacy"));
+    const mcgsTimePolicy = String(targetOption(
+      target,
+      "McgsTimePolicy",
+      searchCore === "mcgs" ? "RelativeClockTemporalV1" : "Legacy",
+    ));
+    if (searchCore === "mcgs" && mcgsTimePolicy !== "RelativeClockTemporalV1") {
+      throw new Error(
+        `target McgsTimePolicy must be RelativeClockTemporalV1, got ${mcgsTimePolicy}`,
+      );
+    }
     const targetOptions = targetOptionEntries(target);
     const extraOptions = mergeOptions(
       targetOptions.filter((option) => !QUALIFIER_OWNED_OPTIONS.has(option.slice(0, option.indexOf("=")))),
-      value.engineOptions ?? ["TimePolicy=RelativeClockV3"],
+      value.engineOptions ?? [],
     );
     const candidate = path.join(jobWorkspace, "uci_time_profile_candidate.json");
     const checkpoint = path.join(jobWorkspace, "uci_time_profile_checkpoint.json");
@@ -139,7 +155,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
       "--expected-model-id", target.modelId,
       "--expected-model-fingerprint", String(target.modelFingerprint),
       "--provider", String(target.provider),
-      "--search-core", String(targetOption(target, "SearchCore", value.searchCore ?? "legacy")),
+      "--search-core", searchCore,
       "--threads", String(topologyInteger(target, value.threads, "Threads", 1, 1, 512, "threads")),
       "--root-workers", String(topologyInteger(
         target,
@@ -158,6 +174,42 @@ export function adapterCommand(job, target, config, attemptDirectory) {
         1,
         64,
         "splitDepth",
+      )),
+      "--search-graph-mb", String(topologyInteger(
+        target,
+        value.searchGraphMb,
+        "SearchGraphMB",
+        512,
+        64,
+        4_096,
+        "searchGraphMb",
+      )),
+      "--mcgs-cpuct-permille", String(topologyInteger(
+        target,
+        value.mcgsCpuctPermille,
+        "McgsCpuctPermille",
+        1_500,
+        100,
+        10_000,
+        "mcgsCpuctPermille",
+      )),
+      "--mcgs-outstanding-batches", String(topologyInteger(
+        target,
+        value.mcgsOutstandingBatches,
+        "McgsOutstandingBatches",
+        2,
+        1,
+        4,
+        "mcgsOutstandingBatches",
+      )),
+      "--mcgs-book-prior-blend-permille", String(topologyInteger(
+        target,
+        value.mcgsBookPriorBlendPermille,
+        "McgsBookPriorBlendPermille",
+        250,
+        0,
+        500,
+        "mcgsBookPriorBlendPermille",
       )),
       "--batch-size", String(topologyInteger(
         target,
@@ -260,7 +312,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
       "--symmetric-defaults",
       ...optionArguments("--candidate-option", mergeOptions(
         targetOptions,
-        value.candidateOptions ?? ["TimePolicy=RelativeClockV3"],
+        value.candidateOptions ?? [],
       )),
       ...optionArguments("--control-option", stockfishAnchor
         ? value.controlOptions ?? ["Threads=1", "Hash=64", "Ponder=false"]
@@ -556,7 +608,7 @@ function authorityFor(job, record, records, resource) {
       ))
     ));
     strength = strength
-      && record?.schema === "uci_arena_paired_sprt_v1"
+      && record?.schema === "uci_arena_paired_sprt_v2"
       && completePairs
       && (record.failures?.length ?? 0) === 0
       && new Set(["paired_strength", "stockfish_anchor"]).has(job.config?.evidenceMode);
@@ -597,7 +649,7 @@ function axesFor(job, record) {
 }
 
 function metricsFor(record) {
-  if (record.schema === "uci_arena_paired_sprt_v1") {
+  if (record.schema === "uci_arena_paired_sprt_v2") {
     const games = (record.sprt?.pair_records ?? []).flatMap((pair) => pair.games ?? []);
     const candidateMoves = games.flatMap((game) => (
       (game.records ?? []).filter((move) => move.owner === "candidate")
