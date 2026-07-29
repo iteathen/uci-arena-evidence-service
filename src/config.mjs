@@ -28,14 +28,14 @@ const defaults = {
   activeModelPointer: path.join(runtimeRoot, "runtime_state", "active_model_runtime.json"),
   runtimeModelsRoot: path.join(runtimeRoot, "runtime_state", "models"),
   engine: process.env.UCI_ARENA_ENGINE?.trim()
-    || executable(runtimeRoot, "bin/flashfork_uci.exe", "bin/flashfork_uci"),
+    || executable(runtimeRoot, "bin/uci_arena_engine.exe", "bin/uci_arena_engine"),
   stockfish: process.env.UCI_ARENA_STOCKFISH?.trim()
     || executable(runtimeRoot, "bin/stockfish.exe", "bin/stockfish"),
   referee: process.env.UCI_ARENA_REFEREE?.trim()
     || executable(
       runtimeRoot,
-      "bin/flashfork_complete_game_referee.exe",
-      "bin/flashfork_complete_game_referee",
+      "bin/uci_arena_complete_game_referee.exe",
+      "bin/uci_arena_complete_game_referee",
     ),
   nativeHelper: path.join(
     runtimeRoot,
