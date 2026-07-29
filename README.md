@@ -32,7 +32,7 @@ node tools/arena_evidence_service/src/cli.mjs target add `
   --model-id resnet_fp16 `
   --model-root engine/runtime/models/resnet_fp16/engine `
   --fingerprint 123456789 `
-  --engine build/Release/flashfork_uci.exe `
+  --engine build/Release/uci_arena_engine.exe `
   --provider directml
 ```
 

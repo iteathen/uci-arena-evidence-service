@@ -22,7 +22,7 @@ ownership:
   existing_tools:
     arena_run_sprt_match: node_clocked_game_controller_and_paired_sprt_math
     arena_run_complete_game_matrix: bounded_complete_game_diagnostic
-    flashfork_complete_game_referee: cpp_legal_move_and_terminal_state_authority
+    uci_arena_complete_game_referee: cpp_legal_move_and_terminal_state_authority
     engine_qualify_uci_time_profile: timing_sample_validation_and_profile_construction
     arena_gpu_resource_isolation: performance_and_strength_resource_authority
   forbidden:
@@ -155,7 +155,7 @@ resource_coordination:
     - operator_pause
     - foreground_lease_request
     - restaurant_owner_active
-    - unowned_flashfork_process
+    - unowned_uci_arena_process
     - configured_priority_process
     - battery_or_battery_saver
     - thermal_or_power_limit
@@ -274,7 +274,7 @@ relocatable_install:
     - engine/tools/qualify_uci_time_profile.mjs
     - arena/run_sprt_match.mjs
     - arena/run_complete_game_matrix.mjs
-    - flashfork_complete_game_referee
+    - uci_arena_complete_game_referee
   rules:
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
     - "Startup registrations use packageRoot as WorkingDirectory."
