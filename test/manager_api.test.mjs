@@ -1,0 +1,123 @@
+import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { promisify } from "node:util";
+
+import { Catalog } from "../src/catalog.mjs";
+import { loadConfig } from "../src/config.mjs";
+import {
+  describeApi,
+  inspectOutputApi,
+  listOutputsApi,
+  statusApi,
+  validateConfigApi,
+} from "../src/manager_api.mjs";
+
+const execFileAsync = promisify(execFile);
+
+async function fixture(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "evidence-manager-api-"));
+  const config = await loadConfig({ workspace: root });
+  const catalog = new Catalog(config);
+  t.after(async () => {
+    catalog.close();
+    await rm(root, { recursive: true, force: true });
+  });
+  return { catalog, config };
+}
+
+test("Manager API describes a stable one-way JSON contract", async (t) => {
+  const { catalog, config } = await fixture(t);
+  const description = describeApi();
+  assert.equal(description.schema, "uci_arena_manager_service_api_v1");
+  assert.equal(description.api_version, "1.0");
+  assert.equal(description.component_id, "uci_arena_evidence.service");
+  assert.deepEqual(description.payload.output_kinds, [
+    "evidence.dataset",
+    "timing_profile.qualified",
+  ]);
+  assert.equal(statusApi(catalog).payload.status.schema, "uci_arena_evidence_status_v1");
+  assert.equal(validateConfigApi(config).payload.runtime_component_id, "uci_arena_evidence.runtime");
+});
+
+test("Manager API projects dataset authority without exposing observations", async (t) => {
+  const { catalog, config } = await fixture(t);
+  const datasetId = catalog.createDataset({
+    campaign: "manager-api",
+    targetIdentity: { model_id: "fixture-model" },
+  });
+  catalog.completeDataset(datasetId, {
+    diagnostic: true,
+    timing: false,
+    strength: false,
+    profile_publication: false,
+    reasons: ["fixture"],
+  });
+  const listed = listOutputsApi(catalog, config);
+  assert.match(listed.payload.cursor, /^[0-9a-f]{64}$/u);
+  assert.equal(listed.payload.outputs.length, 1);
+  const output = listed.payload.outputs[0];
+  assert.equal(output.output_id, `dataset:${datasetId}`);
+  assert.equal(output.authority.diagnostic, true);
+  assert.equal(Object.hasOwn(output, "observations"), false);
+  assert.deepEqual(
+    output.materialization.arguments.slice(0, 4),
+    ["dataset", "export", "--id", datasetId],
+  );
+  const inspected = inspectOutputApi(catalog, config, output.output_id);
+  assert.deepEqual(inspected.payload.output, output);
+  const unchanged = listOutputsApi(catalog, config, listed.payload.cursor);
+  assert.equal(unchanged.payload.unchanged, true);
+  assert.deepEqual(unchanged.payload.outputs, []);
+});
+
+test("Manager API rejects malformed cursors and output identities", async (t) => {
+  const { catalog, config } = await fixture(t);
+  assert.throws(
+    () => listOutputsApi(catalog, config, "../catalog.sqlite"),
+    /cursor is malformed/,
+  );
+  assert.throws(
+    () => inspectOutputApi(catalog, config, "dataset:../catalog.sqlite"),
+    /output id is malformed/,
+  );
+});
+
+test("provider definition advertises the same Manager API contract", async () => {
+  const definition = JSON.parse(await readFile(
+    new URL("../release/components/evidence-service.json", import.meta.url),
+    "utf8",
+  ));
+  const serviceContract = JSON.parse(await readFile(
+    new URL("../contracts/service-contract.json", import.meta.url),
+    "utf8",
+  ));
+  assert.deepEqual(
+    definition.manager_integration_api,
+    serviceContract.manager_integration_api,
+  );
+  assert.equal(definition.manager_integration_api.entrypoint, "cli");
+});
+
+test("installed CLI API works from an unrelated working directory", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "evidence-manager-cli-"));
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "evidence-manager-cwd-"));
+  t.after(() => Promise.all([
+    rm(root, { recursive: true, force: true }),
+    rm(cwd, { recursive: true, force: true }),
+  ]));
+  const { stdout } = await execFileAsync(process.execPath, [
+    path.resolve("src/cli.mjs"),
+    "api",
+    "describe",
+    "--workspace",
+    root,
+  ], { cwd });
+  const response = JSON.parse(stdout);
+  assert.equal(response.schema, "uci_arena_manager_service_api_v1");
+  assert.equal(response.operation, "describe");
+  assert.equal(response.ok, true);
+});

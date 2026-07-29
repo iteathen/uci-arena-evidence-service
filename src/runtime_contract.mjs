@@ -7,6 +7,9 @@ const EXPECTED_ENTRYPOINTS = Object.freeze({
   paired_sprt: "arena/run_sprt_match.mjs",
   complete_game: "arena/run_complete_game_matrix.mjs",
 });
+const EXPECTED_REFEREE = process.platform === "win32"
+  ? "bin/uci_arena_complete_game_referee.exe"
+  : "bin/uci_arena_complete_game_referee";
 
 function safeRuntimePath(runtimeRoot, relative) {
   if (typeof relative !== "string"
@@ -53,7 +56,9 @@ export function validateRuntimeContract(runtimeRoot) {
         process.platform === "win32" ? "windows-x86_64" : "linux-x86_64"
       )
       || Object.keys(contract.entrypoints ?? {}).sort().join(",")
-        !== Object.keys(EXPECTED_ENTRYPOINTS).sort().join(",")) {
+        !== Object.keys(EXPECTED_ENTRYPOINTS).sort().join(",")
+      || Object.keys(contract.native_entrypoints ?? {}).join(",") !== "referee"
+      || contract.native_entrypoints.referee !== EXPECTED_REFEREE) {
     throw new Error("uci_arena_evidence.runtime contract identity is incompatible");
   }
   const entrypoints = {};
@@ -72,6 +77,11 @@ export function validateRuntimeContract(runtimeRoot) {
     }
     entrypoints[name] = filename;
   }
+  const referee = safeRuntimePath(runtimeRoot, EXPECTED_REFEREE);
+  if (!existsSync(referee) || !statSync(referee).isFile()) {
+    throw new Error("uci_arena_evidence.runtime referee entrypoint is unavailable");
+  }
+  entrypoints.referee = referee;
   return Object.freeze({
     componentVersion: contract.component_version,
     contractPath,

@@ -20,6 +20,15 @@
     ]
   },
   "entrypoints": {"cli": "services/evidence-service/src/cli.mjs"},
+  "manager_integration_api": {
+    "schema": "uci_arena_manager_service_api_v1",
+    "version": "1.0",
+    "transport": "cli_json",
+    "entrypoint": "cli",
+    "arguments": ["api"],
+    "operations": ["describe", "status", "outputs_list", "outputs_inspect", "config_validate"],
+    "output_schema": "uci_arena_service_output_v1"
+  },
   "dependencies": [
     {"component_id": "node_runtime.private", "required": true, "binding": "private_component_runtime"},
     {"component_id": "uci_arena_evidence.runtime", "required": true, "binding": "explicit_runtime_root"},

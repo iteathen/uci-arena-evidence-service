@@ -44,6 +44,9 @@ async function workspace() {
     "engine/tools/qualify_uci_time_profile.mjs",
     "arena/run_sprt_match.mjs",
     "arena/run_complete_game_matrix.mjs",
+    process.platform === "win32"
+      ? "bin/uci_arena_complete_game_referee.exe"
+      : "bin/uci_arena_complete_game_referee",
   ]) {
     const filename = path.join(config.runtimeRoot, ...relative.split("/"));
     mkdirSync(path.dirname(filename), { recursive: true });
@@ -65,6 +68,11 @@ async function workspace() {
       timing_profile: "engine/tools/qualify_uci_time_profile.mjs",
       paired_sprt: "arena/run_sprt_match.mjs",
       complete_game: "arena/run_complete_game_matrix.mjs",
+    },
+    native_entrypoints: {
+      referee: process.platform === "win32"
+        ? "bin/uci_arena_complete_game_referee.exe"
+        : "bin/uci_arena_complete_game_referee",
     },
   }, null, 2)}\n`);
   config.resources.consecutiveIdleSamples = 1;
@@ -271,6 +279,11 @@ test("runtime contract fails closed before adapter subprocess construction", asy
       timing_profile: "engine/tools/qualify_uci_time_profile.mjs",
       paired_sprt: "../substituted-runner.mjs",
       complete_game: "arena/run_complete_game_matrix.mjs",
+    },
+    native_entrypoints: {
+      referee: process.platform === "win32"
+        ? "bin/uci_arena_complete_game_referee.exe"
+        : "bin/uci_arena_complete_game_referee",
     },
   })}\n`);
   assert.throws(

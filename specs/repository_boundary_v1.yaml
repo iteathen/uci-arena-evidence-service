@@ -14,6 +14,10 @@ contracts:
   component_id: uci_arena_evidence.service
   installed_cli: services/evidence-service/src/cli.mjs
   runtime_component: uci_arena_evidence.runtime
+  manager_integration_api:
+    schema: uci_arena_manager_service_api_v1
+    version: '1.0'
+    transport: cli_json
   shared_packages:
     - '@uci-arena/background-service-runtime'
     - '@uci-arena/time-profile-contract'
@@ -26,6 +30,11 @@ rules:
   - Runner and referee implementations are absent from this repository.
   - Runtime contract mismatches fail before a job starts.
   - UCI Arena Manager remains the only suite composition and promotion authority.
+  - Manager discovers the API through arena-component.json and never opens the
+    Evidence catalog, scans artifact storage, or infers evidence authority from
+    raw files.
+  - Unknown API major versions, component substitution, malformed output
+    identities, and unvalidated artifact paths fail closed.
 
 validation:
   - exact_vendor_lock

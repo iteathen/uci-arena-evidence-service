@@ -72,6 +72,11 @@ runtime:
     - startup_install
     - startup_status
     - startup_uninstall
+    - api_describe
+    - api_status
+    - api_outputs_list
+    - api_outputs_inspect
+    - api_config_validate
 
 target_resolution:
   active_pointer: runtime_state/active_model_runtime.json
@@ -227,6 +232,25 @@ time_profile_publication:
       - "A missing or invalid configured import fails visibly instead of being reported as an available profile."
       - "Live-cache candidates are limited to exact registered target model ids under runtimeModelsRoot."
 
+manager_integration_api:
+  schema: uci_arena_manager_service_api_v1
+  version: '1.0'
+  transport: cli_json
+  invocation: [api]
+  operations: [describe, status, outputs_list, outputs_inspect, config_validate]
+  output_schema: uci_arena_service_output_v1
+  output_kinds: [evidence.dataset, timing_profile.qualified]
+  rules:
+    - "The installed component manifest is the only discovery authority for the API entrypoint, version, transport, and invocation prefix."
+    - "Manager invokes the service CLI and consumes one JSON response; Evidence Service never calls or imports Manager."
+    - "Dataset records expose stable identity, state, observation count, target identity, explicit authority, and a typed dataset-export invocation without exposing raw observations."
+    - "Profile records expose only profiles admitted by listQualifiedProfiles, including exact file digest, target identity, permissions, publication identity, and controlled regular-file path."
+    - "Output inspect accepts only service-issued dataset UUID or profile SHA-256 identities."
+    - "A supplied cursor may suppress an unchanged output list but never changes evidence or profile authority."
+    - "The API never returns SQL rows, catalog paths, credential data, runtime secrets, or unvalidated artifact-store paths."
+    - "Manager retains installation and promotion authority and must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions."
+    - "Unknown API major versions and unknown operations fail closed."
+
 first_campaign:
   candidate_option: "McgsTemporalWeightProfile=AdaptiveCurveV1"
   control_option: "McgsTemporalWeightProfile=EarlyCurrent"
@@ -274,6 +298,13 @@ relocatable_install:
     component_id: uci_arena_evidence.runtime
     owner_repository: iteathen/UCI_Arena
     required_contract: uci_arena_evidence_runtime_v1
+    required_entrypoints:
+      timing_profile: engine/tools/qualify_uci_time_profile.mjs
+      paired_sprt: arena/run_sprt_match.mjs
+      complete_game: arena/run_complete_game_matrix.mjs
+      referee:
+        windows-x86_64: bin/uci_arena_complete_game_referee.exe
+        linux-x86_64: bin/uci_arena_complete_game_referee
   rules:
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
     - "Before constructing a queued adapter command, the service validates contracts/evidence-runtime-contract.json and every current-platform allowlisted entrypoint inside runtimeRoot."
