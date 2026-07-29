@@ -10,6 +10,14 @@ import { enqueueFirstCampaign, jobFingerprint } from "./campaign.mjs";
 import { loadConfig } from "./config.mjs";
 import { runDaemon } from "./daemon.mjs";
 import { sha256File } from "./identity.mjs";
+import {
+  apiError,
+  describeApi,
+  inspectOutputApi,
+  listOutputsApi,
+  statusApi,
+  validateConfigApi,
+} from "./manager_api.mjs";
 import { listQualifiedProfiles } from "./profiles.mjs";
 import {
   installStartup,
@@ -84,6 +92,10 @@ function usage() {
   arena-evidence dataset show --id UUID
   arena-evidence dataset export --id UUID --out PATH [--format json|jsonl]
   arena-evidence profile list
+  arena-evidence api describe|status
+  arena-evidence api outputs list [--cursor SHA256]
+  arena-evidence api outputs inspect --id OUTPUT_ID
+  arena-evidence api config validate
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
   arena-evidence startup install|status|uninstall
 
@@ -102,7 +114,21 @@ async function main(argv = process.argv.slice(2)) {
   const catalog = new Catalog(config);
   try {
     const [command, subcommand] = positional;
-    if (command === "init") {
+    if (command === "api" && subcommand === "describe") {
+      output(describeApi());
+    } else if (command === "api" && subcommand === "status") {
+      output(statusApi(catalog));
+    } else if (command === "api" && subcommand === "outputs"
+        && positional[2] === "list") {
+      output(listOutputsApi(catalog, config, flags.cursor || ""));
+    } else if (command === "api" && subcommand === "outputs"
+        && positional[2] === "inspect") {
+      if (!flags.id) throw new Error("api outputs inspect requires --id");
+      output(inspectOutputApi(catalog, config, flags.id));
+    } else if (command === "api" && subcommand === "config"
+        && positional[2] === "validate") {
+      output(validateConfigApi(config));
+    } else if (command === "init") {
       output({ schema: "uci_arena_evidence_init_v1", workspace: config.workspace, status: catalog.status() });
     } else if (command === "daemon") {
       output(await runDaemon(catalog, config, { once: Boolean(flags.once) }));
@@ -229,7 +255,14 @@ async function main(argv = process.argv.slice(2)) {
 main().then(
   (code) => { process.exitCode = code; },
   (error) => {
-    process.stderr.write(`arena evidence service failed: ${error?.stack ?? error}\n`);
+    const apiOperation = process.argv.includes("api")
+      ? process.argv.slice(process.argv.indexOf("api") + 1, process.argv.indexOf("api") + 4)
+        .filter((value) => value && !value.startsWith("--"))
+        .join("_")
+      : null;
+    process.stderr.write(apiOperation
+      ? `${JSON.stringify(apiError(apiOperation, error), null, 2)}\n`
+      : `arena evidence service failed: ${error?.stack ?? error}\n`);
     process.exitCode = 1;
   },
 );

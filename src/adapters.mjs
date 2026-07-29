@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { targetIdentity } from "./identity.mjs";
+import { validateRuntimeContract } from "./runtime_contract.mjs";
 
 const OUTPUT_SCHEMAS = Object.freeze({
   timing_profile: new Set(["uci_time_profile_v3"]),
@@ -119,6 +120,7 @@ function topologyBoolean(target, optionName, fallback) {
 
 export function adapterCommand(job, target, config, attemptDirectory) {
   if (!ADAPTERS.has(job.adapter)) throw new Error(`adapter ${job.adapter} is not allow-listed`);
+  const runtime = validateRuntimeContract(config.runtimeRoot);
   const value = job.config ?? {};
   const jobWorkspace = path.dirname(attemptDirectory);
   const environment = {
@@ -147,7 +149,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
     const candidate = path.join(jobWorkspace, "uci_time_profile_candidate.json");
     const checkpoint = path.join(jobWorkspace, "uci_time_profile_checkpoint.json");
     const args = [
-      path.join(config.runtimeRoot, "engine", "tools", "qualify_uci_time_profile.mjs"),
+      runtime.entrypoints.timing_profile,
       "qualify",
       "--engine", target.enginePath,
       "--model-root", target.modelRoot,
@@ -272,7 +274,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
     const pairIndex = integer(value.pairIndex, 0, 0, 1_000_000, "pairIndex");
     const stockfishAnchor = evidenceMode === "stockfish_anchor";
     const args = [
-      path.join(config.runtimeRoot, "arena", "run_sprt_match.mjs"),
+      runtime.entrypoints.paired_sprt,
       "--engine", target.enginePath,
       "--stockfish", config.stockfish,
       "--referee", config.referee,
@@ -341,7 +343,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
   }
   const output = path.join(jobWorkspace, "complete_game.json");
   const args = [
-    path.join(config.runtimeRoot, "arena", "run_complete_game_matrix.mjs"),
+    runtime.entrypoints.complete_game,
     "--engine", target.enginePath,
     "--stockfish", config.stockfish,
     "--referee", config.referee,

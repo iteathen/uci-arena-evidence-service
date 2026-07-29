@@ -21,7 +21,7 @@ import { canonicalJson } from "@uci-arena/time-profile-contract";
 import { adapterCommand, harvestAdapter } from "../src/adapters.mjs";
 import { Catalog } from "../src/catalog.mjs";
 import { enqueueFirstCampaign, jobFingerprint } from "../src/campaign.mjs";
-import { loadConfig, repositoryRoot } from "../src/config.mjs";
+import { loadConfig, packageRoot, repositoryRoot } from "../src/config.mjs";
 import {
   resolveActiveTarget,
   resolveJobTarget,
@@ -39,6 +39,42 @@ import { ResourceGovernor } from "../src/resource_governor.mjs";
 async function workspace() {
   const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-test-"));
   const config = await loadConfig({ workspace: root });
+  config.runtimeRoot = path.join(root, "runtime-component");
+  for (const relative of [
+    "engine/tools/qualify_uci_time_profile.mjs",
+    "arena/run_sprt_match.mjs",
+    "arena/run_complete_game_matrix.mjs",
+    process.platform === "win32"
+      ? "bin/uci_arena_complete_game_referee.exe"
+      : "bin/uci_arena_complete_game_referee",
+  ]) {
+    const filename = path.join(config.runtimeRoot, ...relative.split("/"));
+    mkdirSync(path.dirname(filename), { recursive: true });
+    writeFileSync(filename, "", "utf8");
+  }
+  const runtimeContract = path.join(
+    config.runtimeRoot,
+    "contracts",
+    "evidence-runtime-contract.json",
+  );
+  mkdirSync(path.dirname(runtimeContract), { recursive: true });
+  writeFileSync(runtimeContract, `${JSON.stringify({
+    schema: "uci_arena_evidence_runtime_v1",
+    component_id: "uci_arena_evidence.runtime",
+    component_version: "0.3.0",
+    target_triple:
+      process.platform === "win32" ? "windows-x86_64" : "linux-x86_64",
+    entrypoints: {
+      timing_profile: "engine/tools/qualify_uci_time_profile.mjs",
+      paired_sprt: "arena/run_sprt_match.mjs",
+      complete_game: "arena/run_complete_game_matrix.mjs",
+    },
+    native_entrypoints: {
+      referee: process.platform === "win32"
+        ? "bin/uci_arena_complete_game_referee.exe"
+        : "bin/uci_arena_complete_game_referee",
+    },
+  }, null, 2)}\n`);
   config.resources.consecutiveIdleSamples = 1;
   config.resources.minimumFreeWorkspaceGb = 1;
   return config;
@@ -188,6 +224,15 @@ test("timing adapter projects the exact MCGS topology without legacy policy inje
     path.join(config.paths.attempts, job.id, "0001"),
   );
   const joined = command.args.join(" ");
+  assert.equal(
+    command.args[0],
+    path.join(
+      config.runtimeRoot,
+      "engine",
+      "tools",
+      "qualify_uci_time_profile.mjs",
+    ),
+  );
   assert.match(joined, /--search-core mcgs/);
   assert.match(joined, /--search-graph-mb 768/);
   assert.match(joined, /--mcgs-cpuct-permille 1700/);
@@ -202,6 +247,53 @@ test("timing adapter projects the exact MCGS topology without legacy policy inje
   assert.throws(
     () => adapterCommand(job, invalidTarget, config, path.join(config.workspace, "invalid")),
     /McgsTimePolicy must be RelativeClockTemporalV1/,
+  );
+});
+
+test("runtime contract fails closed before adapter subprocess construction", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const target = catalog.addTarget(targetFixture(config));
+  const datasetId = catalog.createDataset({ campaign: "contract" });
+  const job = catalog.enqueueJob({
+    adapter: "paired_sprt",
+    targetId: target.id,
+    shardId: "contract",
+    datasetId,
+    config: { evidenceMode: "paired_strength", control: "30+0" },
+    fingerprint: jobFingerprint({ test: "runtime-contract" }),
+  });
+  const contractPath = path.join(
+    config.runtimeRoot,
+    "contracts",
+    "evidence-runtime-contract.json",
+  );
+  writeFileSync(contractPath, `${JSON.stringify({
+    schema: "uci_arena_evidence_runtime_v1",
+    component_id: "uci_arena_evidence.runtime",
+    component_version: "0.3.0",
+    target_triple:
+      process.platform === "win32" ? "windows-x86_64" : "linux-x86_64",
+    entrypoints: {
+      timing_profile: "engine/tools/qualify_uci_time_profile.mjs",
+      paired_sprt: "../substituted-runner.mjs",
+      complete_game: "arena/run_complete_game_matrix.mjs",
+    },
+    native_entrypoints: {
+      referee: process.platform === "win32"
+        ? "bin/uci_arena_complete_game_referee.exe"
+        : "bin/uci_arena_complete_game_referee",
+    },
+  })}\n`);
+  assert.throws(
+    () => adapterCommand(
+      job,
+      target,
+      config,
+      path.join(config.workspace, "attempt"),
+    ),
+    /paired_sprt entrypoint is incompatible/u,
   );
 });
 
@@ -534,17 +626,17 @@ test("Node clocked runner preserves manifest, clocks, colors, telemetry, and res
   const config = await workspace();
   closeWorkspaceAfter(t, config);
   const runner = path.join(repositoryRoot, "arena", "run_sprt_match.mjs");
+  if (!existsSync(runner)) {
+    t.skip("requires the pinned uci_arena_evidence.runtime component");
+    return;
+  }
   const mock = path.join(
-    repositoryRoot,
-    "services",
-    "evidence-service",
+    packageRoot,
     "fixtures",
     "mock_uci_engine.mjs",
   );
   const mockReferee = path.join(
-    repositoryRoot,
-    "services",
-    "evidence-service",
+    packageRoot,
     "fixtures",
     "mock_referee.mjs",
   );
@@ -909,9 +1001,7 @@ test("cross-platform child shutdown removes the owned process tree within two se
   closeWorkspaceAfter(t, config);
   const pids = path.join(config.workspace, "pids.json");
   const fixture = path.join(
-    repositoryRoot,
-    "services",
-    "evidence-service",
+    packageRoot,
     "fixtures",
     "process_tree.mjs",
   );

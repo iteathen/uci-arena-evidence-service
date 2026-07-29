@@ -1,0 +1,17 @@
+meta:
+  spec_id: evidence_service_foundation_v1
+  version: 1
+  status: active
+  owner: governance
+
+north_star: >
+  Maintain an independently buildable evidence orchestrator that schedules
+  exact UCI Arena runtime tools without acquiring their chess, UCI, referee,
+  timing, or statistical authority.
+
+hard_rules:
+  - The service never imports UCI Arena, Book Forge, or Manager source.
+  - Runtime executors are supplied through the typed uci_arena_evidence.runtime component.
+  - Evidence authority requires exact identity and a clean resource interval.
+  - Persistent datasets survive repair, upgrade, and normal uninstall.
+  - Releases carry exact digests, SBOMs, test receipts, and keyless provenance.

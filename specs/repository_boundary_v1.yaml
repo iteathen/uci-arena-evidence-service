@@ -1,0 +1,47 @@
+meta:
+  spec_id: evidence_service_repository_boundary_v1
+  version: 1
+  status: active
+  owner: release_engineering
+
+repository:
+  canonical: iteathen/uci-arena-evidence-service
+  visibility: private
+  source_root: .
+  upstream_authority: iteathen/UCI_Arena
+
+contracts:
+  component_id: uci_arena_evidence.service
+  installed_cli: services/evidence-service/src/cli.mjs
+  runtime_component: uci_arena_evidence.runtime
+  manager_integration_api:
+    schema: uci_arena_manager_service_api_v1
+    version: '1.0'
+    transport: cli_json
+  shared_packages:
+    - '@uci-arena/background-service-runtime'
+    - '@uci-arena/time-profile-contract'
+  shared_runtime_lock: vendor/upstream.lock.json
+
+rules:
+  - Source imports never escape the repository root.
+  - UCI Arena, Book Forge, and Manager checkouts are unavailable to clean builds.
+  - Vendored upstream packages are regular files and match the upstream lock.
+  - Runner and referee implementations are absent from this repository.
+  - Runtime contract mismatches fail before a job starts.
+  - UCI Arena Manager remains the only suite composition and promotion authority.
+  - Manager discovers the API through arena-component.json and never opens the
+    Evidence catalog, scans artifact storage, or infers evidence authority from
+    raw files.
+  - Unknown API major versions, component substitution, malformed output
+    identities, and unvalidated artifact paths fail closed.
+
+validation:
+  - exact_vendor_lock
+  - repository_import_boundary
+  - clean_npm_install
+  - source_tests
+  - absent_runtime_healthy_waiting_state
+  - pinned_runtime_integration
+  - deterministic_component_candidate
+  - keyless_signed_provenance
