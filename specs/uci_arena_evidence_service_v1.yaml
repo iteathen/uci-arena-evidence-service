@@ -2,7 +2,7 @@ spec:
   id: uci_arena_evidence_service_v1
   version: 1
   status: active
-  owner: tools/arena_evidence_service
+  owner: services/evidence-service
   purpose: >
     Run existing UCI Arena timing, match, and qualification tools as durable,
     identity-bound background jobs without moving chess, UCI, search, referee,

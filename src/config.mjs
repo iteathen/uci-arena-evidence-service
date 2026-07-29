@@ -40,12 +40,16 @@ const defaults = {
   nativeHelper: path.join(
     runtimeRoot,
     "bin",
-    process.platform === "win32" ? "book_forge_guard.exe" : "book_forge_guard",
+    process.platform === "win32"
+      ? "uci_arena_background_guard.exe"
+      : "uci_arena_background_guard",
   ),
   nativeLauncher: path.join(
     runtimeRoot,
     "bin",
-    process.platform === "win32" ? "book_forge_launcher.exe" : "book_forge_launcher",
+    process.platform === "win32"
+      ? "uci_arena_service_launcher.exe"
+      : "uci_arena_service_launcher",
   ),
   gpuIsolationAttestation: process.env.UCI_ARENA_GPU_ISOLATION_ATTESTATION?.trim() || "",
   profileImports: [],

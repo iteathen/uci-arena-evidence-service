@@ -6,7 +6,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
-import { validateStoredProfile } from "../../../engine/tools/qualify_uci_time_profile.mjs";
+import { validateStoredProfile } from "@uci-arena/time-profile-contract";
 import { resolveActiveTarget } from "./identity.mjs";
 
 function sha256(bytes) {

@@ -5,11 +5,11 @@ import { readFile, readdir, statfs } from "node:fs/promises";
 import { promisify } from "node:util";
 import {
   foregroundResourceDemand,
-} from "../../../arena/lib/background_resource_lease.mjs";
+} from "@uci-arena/background-service-runtime/lease";
 import {
   restaurantOwnerObservation,
-} from "../../../arena/lib/gpu_resource_isolation.mjs";
-import { NativeResourceHelper } from "../../book_forge/src/native_helper.mjs";
+} from "@uci-arena/background-service-runtime/resource-isolation";
+import { NativeResourceHelper } from "@uci-arena/background-service-runtime/native-resource-helper";
 
 const execFileAsync = promisify(execFile);
 const gibibyte = 1024 ** 3;

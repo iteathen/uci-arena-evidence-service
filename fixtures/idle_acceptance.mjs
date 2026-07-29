@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { shutdownChildProcessTree } from "../../../arena/lib/gpu_resource_isolation.mjs";
+import { shutdownChildProcessTree } from "@uci-arena/background-service-runtime/resource-isolation";
 import { repositoryRoot } from "../src/config.mjs";
 
 const execFileAsync = promisify(execFile);

@@ -2,23 +2,36 @@
   "schema": "arena_provider_component_definition_v1",
   "component_id": "uci_arena_evidence.service",
   "source_repository": "iteathen/UCI_Arena",
+  "package_json": "services/evidence-service/package.json",
+  "contract_manifest": "services/evidence-service/contracts/service-contract.json",
   "include": [
-    {"source": "tools/arena_evidence_service/src", "target": "tools/arena_evidence_service/src"},
-    {"source": "tools/arena_evidence_service/fixtures", "target": "tools/arena_evidence_service/fixtures"},
-    {"source": "tools/arena_evidence_service/package.json", "target": "tools/arena_evidence_service/package.json"},
-    {"source": "tools/arena_evidence_service/README.md", "target": "tools/arena_evidence_service/README.md"},
-    {"source": "tools/book_forge/src/native_helper.mjs", "target": "tools/book_forge/src/native_helper.mjs"},
+    {"source": "services/evidence-service/src", "target": "services/evidence-service/src"},
+    {"source": "services/evidence-service/fixtures", "target": "services/evidence-service/fixtures"},
+    {"source": "services/evidence-service/node_modules", "target": "services/evidence-service/node_modules"},
+    {"source": "services/evidence-service/package.json", "target": "services/evidence-service/package.json"},
+    {"source": "services/evidence-service/package-lock.json", "target": "services/evidence-service/package-lock.json"},
+    {"source": "services/evidence-service/contracts", "target": "services/evidence-service/contracts"},
+    {"source": "services/evidence-service/README.md", "target": "services/evidence-service/README.md"},
     {"source": "arena/run_sprt_match.mjs", "target": "arena/run_sprt_match.mjs"},
     {"source": "arena/run_complete_game_matrix.mjs", "target": "arena/run_complete_game_matrix.mjs"},
-    {"source": "arena/lib", "target": "arena/lib"},
     {"source": "engine/tools/qualify_uci_time_profile.mjs", "target": "engine/tools/qualify_uci_time_profile.mjs"},
+    {"source": "packages/background-service-runtime/src", "target": "packages/background-service-runtime/src"},
+    {"source": "packages/time-profile-contract/src", "target": "packages/time-profile-contract/src"},
     {"source": "provider_stage/evidence_runtime", "target": "."},
     {"source": "release/PROJECT-LICENSE-NOTICE.txt", "target": "licenses/LICENSE.txt"}
   ],
-  "entrypoints": {"cli": "tools/arena_evidence_service/src/cli.mjs"},
+  "entrypoints": {"cli": "services/evidence-service/src/cli.mjs"},
+  "dependencies": [
+    {"component_id": "node_runtime.private", "required": true, "binding": "private_component_runtime"},
+    {"component_id": "uci_arena.engine", "required": true, "binding": "explicit_engine_and_model_roots"},
+    {"component_id": "stockfish.engine", "required": true, "binding": "explicit_stockfish_path"}
+  ],
   "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "profile_list", "startup_install", "startup_uninstall"],
   "startup": {"windows": "per_user_task_scheduler", "linux": "per_user_systemd"},
   "data_paths": ["workspace"],
-  "dependency_lock_identities": {"node": ">=24.15.0"},
+  "dependency_lock_identities": {
+    "node": ">=24.15.0",
+    "npm_lock": "services/evidence-service/package-lock.json"
+  },
   "tests": ["evidence_service_tests", "idle_acceptance", "packaged_runner_resolution"]
 }

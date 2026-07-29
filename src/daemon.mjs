@@ -18,11 +18,11 @@ import os from "node:os";
 import path from "node:path";
 import {
   acquireResourceLease,
-} from "../../../arena/lib/background_resource_lease.mjs";
+} from "@uci-arena/background-service-runtime/lease";
 import {
   acquireGpuResourceIsolation,
   shutdownChildProcessTree,
-} from "../../../arena/lib/gpu_resource_isolation.mjs";
+} from "@uci-arena/background-service-runtime/resource-isolation";
 import {
   adapterCommand,
   harvestAdapter,

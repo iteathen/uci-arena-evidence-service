@@ -15,9 +15,9 @@ import test from "node:test";
 import {
   acquireResourceLease,
   validateInheritedResourceLease,
-} from "../../../arena/lib/background_resource_lease.mjs";
-import { shutdownChildProcessTree } from "../../../arena/lib/gpu_resource_isolation.mjs";
-import { canonicalJson } from "../../../engine/tools/qualify_uci_time_profile.mjs";
+} from "@uci-arena/background-service-runtime/lease";
+import { shutdownChildProcessTree } from "@uci-arena/background-service-runtime/resource-isolation";
+import { canonicalJson } from "@uci-arena/time-profile-contract";
 import { adapterCommand, harvestAdapter } from "../src/adapters.mjs";
 import { Catalog } from "../src/catalog.mjs";
 import { enqueueFirstCampaign, jobFingerprint } from "../src/campaign.mjs";
@@ -536,15 +536,15 @@ test("Node clocked runner preserves manifest, clocks, colors, telemetry, and res
   const runner = path.join(repositoryRoot, "arena", "run_sprt_match.mjs");
   const mock = path.join(
     repositoryRoot,
-    "tools",
-    "arena_evidence_service",
+    "services",
+    "evidence-service",
     "fixtures",
     "mock_uci_engine.mjs",
   );
   const mockReferee = path.join(
     repositoryRoot,
-    "tools",
-    "arena_evidence_service",
+    "services",
+    "evidence-service",
     "fixtures",
     "mock_referee.mjs",
   );
@@ -908,7 +908,13 @@ test("cross-platform child shutdown removes the owned process tree within two se
   const config = await workspace();
   closeWorkspaceAfter(t, config);
   const pids = path.join(config.workspace, "pids.json");
-  const fixture = path.join(repositoryRoot, "tools", "arena_evidence_service", "fixtures", "process_tree.mjs");
+  const fixture = path.join(
+    repositoryRoot,
+    "services",
+    "evidence-service",
+    "fixtures",
+    "process_tree.mjs",
+  );
   const child = spawn(process.execPath, [fixture, "parent", pids], {
     stdio: ["pipe", "ignore", "ignore"],
     windowsHide: true,

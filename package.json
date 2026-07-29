@@ -1,6 +1,6 @@
 {
   "name": "@uci-arena/evidence-service",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,5 +12,9 @@
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "acceptance:idle": "node fixtures/idle_acceptance.mjs"
+  },
+  "dependencies": {
+    "@uci-arena/background-service-runtime": "file:../../packages/background-service-runtime",
+    "@uci-arena/time-profile-contract": "file:../../packages/time-profile-contract"
   }
 }

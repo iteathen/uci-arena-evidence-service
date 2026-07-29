@@ -9,8 +9,9 @@ referee; the existing Node match runner owns UCI orchestration and statistics.
 Node.js 24.15 or newer and the repository's C++ engine/referee binaries are
 required. The daemon, catalog, scheduler, resource governor, startup
 integration, normalization pipeline, qualifier, and clocked match controller
-are Node.js. No Python process or adapter is used. The service has no npm
-dependencies.
+are Node.js. No Python process or adapter is used. Its only local Node
+dependencies are the product-neutral background-service runtime and
+time-profile contract packages, both pinned by the service lockfile.
 
 ## Initialize and inspect
 
@@ -19,16 +20,16 @@ Windows defaults to `E:\uci-arena-evidence`. Linux defaults to
 `UCI_ARENA_EVIDENCE_ROOT` or `--workspace`.
 
 ```powershell
-node tools/arena_evidence_service/src/cli.mjs init
-node tools/arena_evidence_service/src/cli.mjs status --json
-node tools/arena_evidence_service/src/cli.mjs daemon --once
+node services/evidence-service/src/cli.mjs init
+node services/evidence-service/src/cli.mjs status --json
+node services/evidence-service/src/cli.mjs daemon --once
 ```
 
 If `runtime_state/active_model_runtime.json` does not expose an exact model
 identity, add an explicit target:
 
 ```powershell
-node tools/arena_evidence_service/src/cli.mjs target add `
+node services/evidence-service/src/cli.mjs target add `
   --model-id resnet_fp16 `
   --model-root engine/runtime/models/resnet_fp16/engine `
   --fingerprint 123456789 `
@@ -42,7 +43,7 @@ No filename is accepted as a substitute for the declared model fingerprint.
 Enqueue the registered first campaign:
 
 ```powershell
-node tools/arena_evidence_service/src/cli.mjs job enqueue --campaign first --target TARGET_UUID
+node services/evidence-service/src/cli.mjs job enqueue --campaign first --target TARGET_UUID
 ```
 
 It runs deadline/provider qualification, the `30+0`, `60+2`, `180+0`, and
@@ -61,7 +62,7 @@ independent.
 
 Direct Arena runners request foreground priority. A background child is
 terminated within two seconds and requeued when foreground work appears.
-Windows uses Job Object cleanup when the Book Forge native helper is available;
+Windows uses Job Object cleanup when the UCI Arena background-service helper is available;
 Linux uses a separate process group, and the systemd unit uses
 `KillMode=control-group`. Target threads, provider, batch configuration, and
 search options are never silently throttled.
@@ -75,7 +76,7 @@ The public profile projection exposes validated live profiles and any explicitly
 configured in-place imports without reading raw evidence or scanning disks:
 
 ```powershell
-node tools/arena_evidence_service/src/cli.mjs profile list --json
+node services/evidence-service/src/cli.mjs profile list --json
 ```
 
 `profileImports` in `uci_arena_evidence_service_config_v1` is an array of
@@ -88,17 +89,17 @@ Windows registers a per-user Task Scheduler logon task through the existing
 generic windowless launcher:
 
 ```powershell
-node tools/arena_evidence_service/src/cli.mjs startup install
-node tools/arena_evidence_service/src/cli.mjs startup status
-node tools/arena_evidence_service/src/cli.mjs startup uninstall
+node services/evidence-service/src/cli.mjs startup install
+node services/evidence-service/src/cli.mjs startup status
+node services/evidence-service/src/cli.mjs startup uninstall
 ```
 
 Linux installs a `systemd --user` unit with low CPU/I/O weight:
 
 ```bash
-node tools/arena_evidence_service/src/cli.mjs startup install
+node services/evidence-service/src/cli.mjs startup install
 systemctl --user status uci-arena-evidence.service
-node tools/arena_evidence_service/src/cli.mjs startup uninstall
+node services/evidence-service/src/cli.mjs startup uninstall
 ```
 
 The Linux user manager must be available. Enable login lingering separately
@@ -112,15 +113,37 @@ identity-scoped datasets. Collection pauses below 75 GiB free space and never
 silently deletes evidence.
 
 ```powershell
-node tools/arena_evidence_service/src/cli.mjs pause --reason maintenance
-node tools/arena_evidence_service/src/cli.mjs resume
-node tools/arena_evidence_service/src/cli.mjs job list
-node tools/arena_evidence_service/src/cli.mjs dataset list
-node tools/arena_evidence_service/src/cli.mjs profile list --json
-node tools/arena_evidence_service/src/cli.mjs dataset export --id DATASET_UUID --out evidence.jsonl
-node tools/arena_evidence_service/src/cli.mjs prune --before 2026-01-01T00:00:00Z
-node tools/arena_evidence_service/src/cli.mjs prune --before 2026-01-01T00:00:00Z --confirm PRUNE
+node services/evidence-service/src/cli.mjs pause --reason maintenance
+node services/evidence-service/src/cli.mjs resume
+node services/evidence-service/src/cli.mjs job list
+node services/evidence-service/src/cli.mjs dataset list
+node services/evidence-service/src/cli.mjs profile list --json
+node services/evidence-service/src/cli.mjs dataset export --id DATASET_UUID --out evidence.jsonl
+node services/evidence-service/src/cli.mjs prune --before 2026-01-01T00:00:00Z
+node services/evidence-service/src/cli.mjs prune --before 2026-01-01T00:00:00Z --confirm PRUNE
 ```
 
 The first prune command is a recorded dry run. Only the exact `PRUNE`
 confirmation performs deletion.
+
+## Package boundary and persistent data
+
+The Evidence Service is rooted at `services/evidence-service` in a source
+checkout. It imports no Book Forge, Arena runner, engine-tool, or Manager
+source. Evaluation programs are invoked through allowlisted typed executable
+contracts, while shared validation and host controls are declared package
+dependencies.
+
+`contracts/service-contract.json` is the installed public boundary. It binds
+the component version, CLI, configuration and status schemas, capabilities,
+startup ownership, status health smoke, data paths, and persistence policy.
+UCI Arena Manager verifies it against the signed component manifest and keeps
+its digest in the install receipt.
+
+The workspace is deliberately separate from installed binaries. It contains
+the SQLite catalog, immutable content-addressed artifacts, attempts, exports,
+qualified profile candidates, and locks/heartbeat state. Repair, upgrade,
+startup removal, and default uninstall preserve this workspace. Audited prune
+is the only ordinary service operation that removes retained evidence; an
+explicit installer data-removal choice is required to remove the complete
+workspace.
