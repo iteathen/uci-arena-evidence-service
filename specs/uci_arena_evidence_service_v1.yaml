@@ -2,7 +2,7 @@ spec:
   id: uci_arena_evidence_service_v1
   version: 1
   status: active
-  owner: services/evidence-service
+  owner: iteathen/uci-arena-evidence-service
   purpose: >
     Run existing UCI Arena timing, match, and qualification tools as durable,
     identity-bound background jobs without moving chess, UCI, search, referee,
@@ -268,15 +268,16 @@ validation:
 
 relocatable_install:
   package_root: derived_from_import_meta
-  runtime_root: explicit_UCI_ARENA_EVIDENCE_RUNTIME_ROOT_or_source_checkout_fallback
+  runtime_root: explicit_UCI_ARENA_EVIDENCE_RUNTIME_ROOT_or_package_root_development_default
   repository_checkout_required: false
   packaged_runtime:
-    - engine/tools/qualify_uci_time_profile.mjs
-    - arena/run_sprt_match.mjs
-    - arena/run_complete_game_matrix.mjs
-    - uci_arena_complete_game_referee
+    component_id: uci_arena_evidence.runtime
+    owner_repository: iteathen/UCI_Arena
+    required_contract: uci_arena_evidence_runtime_v1
   rules:
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
+    - "Before constructing a queued adapter command, the service validates contracts/evidence-runtime-contract.json and every current-platform allowlisted entrypoint inside runtimeRoot."
+    - "An absent runtime remains a healthy state while no job is runnable; an absent, malformed, mismatched, or escaping runtime contract fails the job before subprocess creation."
     - "Startup registrations use packageRoot as WorkingDirectory."
     - "Engine, Stockfish, model, referee, and runner locations remain explicit typed configuration."
     - "Restaurant locations are detection-only and are never inferred from the installed component parent."

@@ -6,13 +6,11 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { shutdownChildProcessTree } from "@uci-arena/background-service-runtime/resource-isolation";
-import { repositoryRoot } from "../src/config.mjs";
+import { packageRoot } from "../src/config.mjs";
 
 const execFileAsync = promisify(execFile);
 const cli = path.join(
-  repositoryRoot,
-  "tools",
-  "arena_evidence_service",
+  packageRoot,
   "src",
   "cli.mjs",
 );
@@ -62,7 +60,7 @@ const child = spawn(
   process.execPath,
   [cli, "daemon", "--workspace", workspace],
   {
-    cwd: repositoryRoot,
+    cwd: packageRoot,
     stdio: ["pipe", "ignore", "pipe"],
     windowsHide: true,
   },

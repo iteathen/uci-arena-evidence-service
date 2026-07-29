@@ -6,12 +6,20 @@ resource admission, evidence normalization, and qualified timing-profile
 publication. Chess legality and terminal state remain in the existing C++
 referee; the existing Node match runner owns UCI orchestration and statistics.
 
-Node.js 24.15 or newer and the repository's C++ engine/referee binaries are
-required. The daemon, catalog, scheduler, resource governor, startup
+Node.js 24.15 or newer and the separately installed
+`uci_arena_evidence.runtime` component are required for queued jobs. The
+daemon, catalog, scheduler, resource governor, startup
 integration, normalization pipeline, qualifier, and clocked match controller
 are Node.js. No Python process or adapter is used. Its only local Node
 dependencies are the product-neutral background-service runtime and
 time-profile contract packages, both pinned by the service lockfile.
+
+Set `UCI_ARENA_EVIDENCE_RUNTIME_ROOT` to the installed runtime-component root
+when the Manager has not injected that location. Before it constructs any
+queued adapter command, the service validates
+`contracts/evidence-runtime-contract.json`, the component identity and target,
+and all three allowlisted Node entrypoints. Missing runtime files are healthy
+while the queue is idle, but fail the affected job before a subprocess starts.
 
 ## Initialize and inspect
 
@@ -20,16 +28,16 @@ Windows defaults to `E:\uci-arena-evidence`. Linux defaults to
 `UCI_ARENA_EVIDENCE_ROOT` or `--workspace`.
 
 ```powershell
-node services/evidence-service/src/cli.mjs init
-node services/evidence-service/src/cli.mjs status --json
-node services/evidence-service/src/cli.mjs daemon --once
+node src/cli.mjs init
+node src/cli.mjs status --json
+node src/cli.mjs daemon --once
 ```
 
 If `runtime_state/active_model_runtime.json` does not expose an exact model
 identity, add an explicit target:
 
 ```powershell
-node services/evidence-service/src/cli.mjs target add `
+node src/cli.mjs target add `
   --model-id resnet_fp16 `
   --model-root engine/runtime/models/resnet_fp16/engine `
   --fingerprint 123456789 `
@@ -43,7 +51,7 @@ No filename is accepted as a substitute for the declared model fingerprint.
 Enqueue the registered first campaign:
 
 ```powershell
-node services/evidence-service/src/cli.mjs job enqueue --campaign first --target TARGET_UUID
+node src/cli.mjs job enqueue --campaign first --target TARGET_UUID
 ```
 
 It runs deadline/provider qualification, the `30+0`, `60+2`, `180+0`, and
@@ -76,7 +84,7 @@ The public profile projection exposes validated live profiles and any explicitly
 configured in-place imports without reading raw evidence or scanning disks:
 
 ```powershell
-node services/evidence-service/src/cli.mjs profile list --json
+node src/cli.mjs profile list --json
 ```
 
 `profileImports` in `uci_arena_evidence_service_config_v1` is an array of
@@ -89,17 +97,17 @@ Windows registers a per-user Task Scheduler logon task through the existing
 generic windowless launcher:
 
 ```powershell
-node services/evidence-service/src/cli.mjs startup install
-node services/evidence-service/src/cli.mjs startup status
-node services/evidence-service/src/cli.mjs startup uninstall
+node src/cli.mjs startup install
+node src/cli.mjs startup status
+node src/cli.mjs startup uninstall
 ```
 
 Linux installs a `systemd --user` unit with low CPU/I/O weight:
 
 ```bash
-node services/evidence-service/src/cli.mjs startup install
+node src/cli.mjs startup install
 systemctl --user status uci-arena-evidence.service
-node services/evidence-service/src/cli.mjs startup uninstall
+node src/cli.mjs startup uninstall
 ```
 
 The Linux user manager must be available. Enable login lingering separately
@@ -113,14 +121,14 @@ identity-scoped datasets. Collection pauses below 75 GiB free space and never
 silently deletes evidence.
 
 ```powershell
-node services/evidence-service/src/cli.mjs pause --reason maintenance
-node services/evidence-service/src/cli.mjs resume
-node services/evidence-service/src/cli.mjs job list
-node services/evidence-service/src/cli.mjs dataset list
-node services/evidence-service/src/cli.mjs profile list --json
-node services/evidence-service/src/cli.mjs dataset export --id DATASET_UUID --out evidence.jsonl
-node services/evidence-service/src/cli.mjs prune --before 2026-01-01T00:00:00Z
-node services/evidence-service/src/cli.mjs prune --before 2026-01-01T00:00:00Z --confirm PRUNE
+node src/cli.mjs pause --reason maintenance
+node src/cli.mjs resume
+node src/cli.mjs job list
+node src/cli.mjs dataset list
+node src/cli.mjs profile list --json
+node src/cli.mjs dataset export --id DATASET_UUID --out evidence.jsonl
+node src/cli.mjs prune --before 2026-01-01T00:00:00Z
+node src/cli.mjs prune --before 2026-01-01T00:00:00Z --confirm PRUNE
 ```
 
 The first prune command is a recorded dry run. Only the exact `PRUNE`
@@ -128,11 +136,11 @@ confirmation performs deletion.
 
 ## Package boundary and persistent data
 
-The Evidence Service is rooted at `services/evidence-service` in a source
-checkout. It imports no Book Forge, Arena runner, engine-tool, or Manager
-source. Evaluation programs are invoked through allowlisted typed executable
-contracts, while shared validation and host controls are declared package
-dependencies.
+The repository root is the Evidence Service package root. It imports no Book
+Forge, Arena runner, engine-tool, or Manager source. Evaluation programs are
+invoked through the allowlisted `uci_arena_evidence.runtime` component, while
+shared validation and host controls are regular-file package inputs pinned by
+`vendor/upstream.lock.json`.
 
 `contracts/service-contract.json` is the installed public boundary. It binds
 the component version, CLI, configuration and status schemas, capabilities,

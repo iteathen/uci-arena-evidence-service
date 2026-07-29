@@ -5,10 +5,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const sourceRepositoryRoot = path.resolve(packageRoot, "..", "..");
 export const runtimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
   ? path.resolve(process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT)
-  : sourceRepositoryRoot;
+  : packageRoot;
 export const repositoryRoot = runtimeRoot;
 
 function defaultWorkspace() {
@@ -38,14 +37,16 @@ const defaults = {
       "bin/uci_arena_complete_game_referee",
     ),
   nativeHelper: path.join(
-    runtimeRoot,
+    packageRoot,
+    "native",
     "bin",
     process.platform === "win32"
       ? "uci_arena_background_guard.exe"
       : "uci_arena_background_guard",
   ),
   nativeLauncher: path.join(
-    runtimeRoot,
+    packageRoot,
+    "native",
     "bin",
     process.platform === "win32"
       ? "uci_arena_service_launcher.exe"
@@ -53,9 +54,7 @@ const defaults = {
   ),
   gpuIsolationAttestation: process.env.UCI_ARENA_GPU_ISOLATION_ATTESTATION?.trim() || "",
   profileImports: [],
-  restaurantRoots: process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
-    ? []
-    : [path.resolve(sourceRepositoryRoot, "..", "the_restaurant")],
+  restaurantRoots: [],
   resources: {
     minimumFreeWorkspaceGb: 75,
     pauseAvailableMemoryGb: 6,

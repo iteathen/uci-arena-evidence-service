@@ -1,6 +1,6 @@
 {
   "name": "@uci-arena/evidence-service",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,10 +11,13 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "acceptance:idle": "node fixtures/idle_acceptance.mjs"
+    "acceptance:idle": "node fixtures/idle_acceptance.mjs",
+    "check:boundary": "node tools/repository-boundary-check.mjs",
+    "check:vendor": "node tools/verify-vendor-lock.mjs",
+    "check": "npm run check:vendor && npm run check:boundary && npm test"
   },
   "dependencies": {
-    "@uci-arena/background-service-runtime": "file:../../packages/background-service-runtime",
-    "@uci-arena/time-profile-contract": "file:../../packages/time-profile-contract"
+    "@uci-arena/background-service-runtime": "file:vendor/background-service-runtime",
+    "@uci-arena/time-profile-contract": "file:vendor/time-profile-contract"
   }
 }
