@@ -342,6 +342,22 @@ export function adapterCommand(job, target, config, attemptDirectory) {
     };
   }
   const output = path.join(jobWorkspace, "complete_game.json");
+  const completeGameSplitDepth = topologyInteger(
+    target,
+    value.splitDepth,
+    "V2SplitDepth",
+    5,
+    2,
+    64,
+    "splitDepth",
+  );
+  const activationDepth = integer(
+    value.activationDepth,
+    Math.max(6, completeGameSplitDepth),
+    completeGameSplitDepth,
+    64,
+    "activationDepth",
+  );
   const args = [
     runtime.entrypoints.complete_game,
     "--engine", target.enginePath,
@@ -361,15 +377,7 @@ export function adapterCommand(job, target, config, attemptDirectory) {
       16,
       "rootWorkers",
     )),
-    "--split-depth", String(topologyInteger(
-      target,
-      value.splitDepth,
-      "V2SplitDepth",
-      5,
-      2,
-      64,
-      "splitDepth",
-    )),
+    "--split-depth", String(completeGameSplitDepth),
     "--expected-batch-size", String(topologyInteger(
       target,
       value.expectedBatchSize,
@@ -387,6 +395,14 @@ export function adapterCommand(job, target, config, attemptDirectory) {
       1,
       256,
       "threads",
+    )),
+    "--activation-depth", String(activationDepth),
+    "--activation-movetime-ms", String(integer(
+      value.activationMovetimeMs,
+      2_000,
+      100,
+      60_000,
+      "activationMovetimeMs",
     )),
     "--time-ms", stringArray(value.timeMs ?? ["25", "100", "500"], "timeMs").join(","),
     "--allow-shared-gpu-diagnostic",

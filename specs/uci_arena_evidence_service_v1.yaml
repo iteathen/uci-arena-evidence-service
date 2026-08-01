@@ -195,6 +195,7 @@ adapters:
     - "The Node paired runner owns deterministic manifests, clock controls, checkpoint/resume, single-game shards, and MCGS telemetry while the C++ referee owns chess legality and terminal state."
     - "The service never injects a legacy timing-policy experiment. Candidate and control options come from the exact registered target plus explicitly declared job overrides; live MCGS timing identity remains McgsTimePolicy=RelativeClockTemporalV1."
     - "Complete-game matrix outputs remain diagnostic-only."
+    - "The complete-game adapter passes an explicit fixed-depth topology activation target at or beyond the configured split depth and a separate timed deadline-probe budget; neither gate may substitute for the other."
     - "Max-ply adjudications, incomplete color pairs, engine failures, and aborted games have no strength authority."
 
 time_profile_publication:

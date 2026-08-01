@@ -250,6 +250,55 @@ test("timing adapter projects the exact MCGS topology without legacy policy inje
   );
 });
 
+test("complete-game adapter keeps deterministic topology activation separate from deadline probing", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const fixture = targetFixture(config);
+  fixture.uciOptions = {
+    SearchCore: "v2",
+    Threads: 4,
+    RootWorkers: 4,
+    V2SplitDepth: 3,
+    NNBatchSize: 64,
+  };
+  const target = catalog.addTarget(fixture);
+  const datasetId = catalog.createDataset({ campaign: "complete-game" });
+  const job = catalog.enqueueJob({
+    adapter: "complete_game",
+    targetId: target.id,
+    shardId: "activation-contract",
+    datasetId,
+    config: {
+      activationDepth: 8,
+      activationMovetimeMs: 1_500,
+      timeMs: ["25"],
+    },
+    fingerprint: jobFingerprint({ test: "complete-game-activation-command" }),
+  });
+  const command = adapterCommand(
+    job,
+    target,
+    config,
+    path.join(config.paths.attempts, job.id, "0001"),
+  );
+  const joined = command.args.join(" ");
+  assert.match(joined, /--split-depth 3/);
+  assert.match(joined, /--activation-depth 8/);
+  assert.match(joined, /--activation-movetime-ms 1500/);
+  assert.match(joined, /--time-ms 25/);
+
+  assert.throws(
+    () => adapterCommand(
+      { ...job, config: { ...job.config, activationDepth: 2 } },
+      target,
+      config,
+      path.join(config.workspace, "invalid-activation"),
+    ),
+    /activationDepth must be in 3\.\.64/,
+  );
+});
+
 test("runtime contract fails closed before adapter subprocess construction", async (t) => {
   const config = await workspace();
   const catalog = new Catalog(config);
