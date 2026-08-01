@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 import { listQualifiedProfiles } from "./profiles.mjs";
+import { enqueueFirstCampaign } from "./campaign.mjs";
 
 const API_SCHEMA = "uci_arena_manager_service_api_v1";
 const API_VERSION = "1.0";
@@ -16,7 +17,14 @@ const OPERATIONS = Object.freeze([
   "outputs_list",
   "outputs_inspect",
   "config_validate",
+  "orchestration_status",
+  "campaign_enqueue",
+  "job_control",
 ]);
+
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const ORCHESTRATION_TARGET_LIMIT = 64;
+const ORCHESTRATION_JOB_LIMIT = 512;
 
 function envelope(operation, payload) {
   return {
@@ -193,5 +201,93 @@ export function validateConfigApi(config) {
     configuration_schema: "uci_arena_evidence_service_config_v1",
     workspace: config.workspace,
     runtime_component_id: "uci_arena_evidence.runtime",
+  });
+}
+
+function targetSummary(target) {
+  if (!UUID_V4.test(target.id ?? "")) throw new Error("Evidence target id is malformed");
+  return {
+    id: target.id,
+    label: String(target.label ?? "").slice(0, 256),
+    model_id: String(target.modelId ?? "").slice(0, 256),
+    model_fingerprint: String(target.modelFingerprint ?? "").slice(0, 512),
+    engine_sha256: String(target.engineSha256 ?? "").slice(0, 64),
+    provider: String(target.provider ?? "").slice(0, 128),
+    created_at: target.createdAt,
+  };
+}
+
+function boundedDiagnostic(value) {
+  return String(value ?? "")
+    .slice(0, 2_048)
+    .replace(/[A-Za-z]:[\\/][^\s,;)]*/gu, "[path]")
+    .replace(/\\\\[^\\\s]+\\[^\s,;)]*/gu, "[path]")
+    .replace(/(^|[\s=:(])\/(?:[^\s,;)]+\/?)+/gu, "$1[path]");
+}
+
+function jobSummary(job) {
+  if (!UUID_V4.test(job.id ?? "")) throw new Error("Evidence job id is malformed");
+  return {
+    id: job.id,
+    adapter: String(job.adapter ?? "").slice(0, 64),
+    state: String(job.state ?? "").slice(0, 64),
+    priority: Number(job.priority),
+    target_id: job.targetId,
+    shard_id: String(job.shardId ?? "").slice(0, 256),
+    dataset_id: job.datasetId,
+    attempts: Number(job.attempts),
+    wait_reason: boundedDiagnostic(job.waitReason),
+    last_error: boundedDiagnostic(job.lastError),
+    created_at: job.createdAt,
+    updated_at: job.updatedAt,
+  };
+}
+
+export function orchestrationStatusApi(catalog) {
+  const targets = catalog.targets({
+    limit: ORCHESTRATION_TARGET_LIMIT + 1,
+    newestFirst: true,
+  });
+  const jobs = catalog.jobs({
+    limit: ORCHESTRATION_JOB_LIMIT + 1,
+    activeFirst: true,
+  });
+  return envelope("orchestration_status", {
+    schema: "uci_arena_evidence_orchestration_v1",
+    limits: {
+      targets: ORCHESTRATION_TARGET_LIMIT,
+      jobs: ORCHESTRATION_JOB_LIMIT,
+    },
+    targets_truncated: targets.length > ORCHESTRATION_TARGET_LIMIT,
+    jobs_truncated: jobs.length > ORCHESTRATION_JOB_LIMIT,
+    targets: targets.slice(0, ORCHESTRATION_TARGET_LIMIT).map(targetSummary),
+    jobs: jobs.slice(0, ORCHESTRATION_JOB_LIMIT).map(jobSummary),
+  });
+}
+
+export function enqueueCampaignApi(catalog, targetId = null) {
+  if (targetId !== null) {
+    if (!UUID_V4.test(targetId)) throw new Error("Evidence target id is malformed");
+    if (!catalog.target(targetId)) throw new Error(`unknown target ${targetId}`);
+  }
+  const jobs = enqueueFirstCampaign(catalog, { targetId });
+  return envelope("campaign_enqueue", {
+    schema: "uci_arena_evidence_campaign_enqueue_v1",
+    campaign: "time_control_curve_v1",
+    target_id: targetId,
+    jobs: jobs.map(jobSummary),
+  });
+}
+
+export function controlJobApi(catalog, id, action) {
+  if (!UUID_V4.test(id ?? "")) throw new Error("Evidence job id is malformed");
+  if (!new Set(["cancel", "retry"]).has(action)) {
+    throw new Error("Evidence job control action must be cancel or retry");
+  }
+  const job = action === "cancel" ? catalog.cancelJob(id) : catalog.retryJob(id);
+  return envelope("job_control", {
+    schema: "uci_arena_evidence_job_control_v1",
+    action,
+    job: jobSummary(job),
   });
 }

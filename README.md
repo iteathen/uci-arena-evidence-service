@@ -60,6 +60,12 @@ games, fixed-identity Stockfish depth 8/10/12/14 anchors, and finally
 `40/120+5`. Campaign evidence cannot displace the tracked `EarlyCurrent` live
 authority by itself.
 
+UCI Arena Manager uses the component-declared API for the same bounded workflow:
+it can inspect redacted target/job summaries, enqueue only this built-in first
+campaign, and cancel or retry service-issued job IDs. The Manager API cannot
+submit arbitrary adapters, flags, paths, or commands and never opens the service
+catalog directly.
+
 ## Background resource behavior
 
 The daemon runs one engine shard at a time. It waits for sustained host and GPU

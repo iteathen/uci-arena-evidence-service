@@ -26,7 +26,7 @@
     "transport": "cli_json",
     "entrypoint": "cli",
     "arguments": ["api"],
-    "operations": ["describe", "status", "outputs_list", "outputs_inspect", "config_validate"],
+    "operations": ["describe", "status", "outputs_list", "outputs_inspect", "config_validate", "orchestration_status", "campaign_enqueue", "job_control"],
     "output_schema": "uci_arena_service_output_v1"
   },
   "dependencies": [

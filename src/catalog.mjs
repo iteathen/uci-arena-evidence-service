@@ -289,8 +289,16 @@ export class Catalog {
     return targetRow(this.database.prepare("SELECT * FROM targets WHERE id=?").get(id));
   }
 
-  targets() {
-    return this.database.prepare("SELECT * FROM targets ORDER BY created_at,id").all().map(targetRow);
+  targets({ limit = null, newestFirst = false } = {}) {
+    if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 10_000)) {
+      throw new Error("target query limit is invalid");
+    }
+    const order = newestFirst ? "created_at DESC,id DESC" : "created_at,id";
+    const statement = limit === null
+      ? this.database.prepare(`SELECT * FROM targets ORDER BY ${order}`)
+      : this.database.prepare(`SELECT * FROM targets ORDER BY ${order} LIMIT ?`);
+    const rows = limit === null ? statement.all() : statement.all(limit);
+    return rows.map(targetRow);
   }
 
   removeTarget(id) {
@@ -360,10 +368,27 @@ export class Catalog {
     return jobRow(this.database.prepare("SELECT * FROM jobs WHERE id=?").get(id));
   }
 
-  jobs({ state } = {}) {
-    const rows = state
-      ? this.database.prepare("SELECT * FROM jobs WHERE state=? ORDER BY priority DESC,created_at,id").all(state)
-      : this.database.prepare("SELECT * FROM jobs ORDER BY created_at,id").all();
+  jobs({ state, limit = null, activeFirst = false } = {}) {
+    if (limit !== null && (!Number.isInteger(limit) || limit < 1 || limit > 10_000)) {
+      throw new Error("job query limit is invalid");
+    }
+    const order = activeFirst
+      ? "CASE WHEN state IN ('completed','failed','cancelled') THEN 1 ELSE 0 END,updated_at DESC,id DESC"
+      : state
+        ? "priority DESC,created_at,id"
+        : "created_at,id";
+    let query = "SELECT * FROM jobs";
+    const parameters = [];
+    if (state) {
+      query += " WHERE state=?";
+      parameters.push(state);
+    }
+    query += ` ORDER BY ${order}`;
+    if (limit !== null) {
+      query += " LIMIT ?";
+      parameters.push(limit);
+    }
+    const rows = this.database.prepare(query).all(...parameters);
     return rows.map(jobRow);
   }
 

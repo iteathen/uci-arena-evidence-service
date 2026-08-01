@@ -36,7 +36,10 @@
       "status",
       "outputs_list",
       "outputs_inspect",
-      "config_validate"
+      "config_validate",
+      "orchestration_status",
+      "campaign_enqueue",
+      "job_control"
     ],
     "output_schema": "uci_arena_service_output_v1"
   },
