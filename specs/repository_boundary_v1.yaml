@@ -8,7 +8,7 @@ repository:
   canonical: iteathen/uci-arena-evidence-service
   visibility: private
   source_root: .
-  upstream_authority: iteathen/UCI_Arena
+  suite_architecture_authority: iteathen/uci-arena-installer
 
 github_automation:
   automatic_ci: disabled
@@ -42,7 +42,8 @@ rules:
   - Vendored upstream packages are regular files and match the upstream lock.
   - Runner and referee implementations are absent from this repository.
   - Runtime contract mismatches fail before a job starts.
-  - UCI Arena Manager remains the only suite composition and promotion authority.
+  - UCI Arena Installer is the only suite composition, assembly, and promotion
+    authority; Manager owns orchestration of components after installation.
   - Manager discovers the API through arena-component.json and never opens the
     Evidence catalog, scans artifact storage, or infers evidence authority from
     raw files.

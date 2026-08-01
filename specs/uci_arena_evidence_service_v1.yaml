@@ -278,7 +278,7 @@ manager_integration_api:
     - "Output inspect accepts only service-issued dataset UUID or profile SHA-256 identities."
     - "A supplied cursor may suppress an unchanged output list but never changes evidence or profile authority."
     - "The API never returns SQL rows, catalog paths, credential data, runtime secrets, or unvalidated artifact-store paths."
-    - "Manager retains installation and promotion authority and must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions."
+    - "Installer retains installation and suite-promotion authority; Manager must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions in its installed-suite projections and controls."
     - "Unknown API major versions and unknown operations fail closed."
 
 first_campaign:
