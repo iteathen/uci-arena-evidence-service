@@ -173,6 +173,10 @@ test("Manager orchestration status applies exact collection caps", () => {
 });
 
 test("provider definition advertises the same Manager API contract", async () => {
+  const packageManifest = JSON.parse(await readFile(
+    new URL("../package.json", import.meta.url),
+    "utf8",
+  ));
   const definition = JSON.parse(await readFile(
     new URL("../release/components/evidence-service.json", import.meta.url),
     "utf8",
@@ -184,6 +188,11 @@ test("provider definition advertises the same Manager API contract", async () =>
   assert.deepEqual(
     definition.manager_integration_api,
     serviceContract.manager_integration_api,
+  );
+  assert.equal(
+    serviceContract.component_version,
+    packageManifest.version,
+    "the installed contract must carry the immutable package version",
   );
   assert.equal(definition.manager_integration_api.entrypoint, "cli");
   assert.deepEqual(
