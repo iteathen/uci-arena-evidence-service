@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 export const windowsTaskName = "UCI Arena Evidence Service";
 export const linuxUnitName = "uci-arena-evidence.service";
 const cliPath = fileURLToPath(new URL("./cli.mjs", import.meta.url));
+const daemonLockName = "daemon.lock";
 
 function xmlEscape(value) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;")
@@ -70,6 +71,94 @@ export function buildWindowsTaskXml(config, userSid) {
 `;
 }
 
+function xmlUnescape(value) {
+  return String(value).replaceAll("&quot;", '"').replaceAll("&apos;", "'")
+    .replaceAll("&gt;", ">").replaceAll("&lt;", "<").replaceAll("&amp;", "&");
+}
+
+function xmlElement(xml, name) {
+  const match = new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`, "u").exec(xml);
+  return match ? xmlUnescape(match[1].trim()) : "";
+}
+
+export function windowsTaskActionFromXml(xml) {
+  return {
+    command: xmlElement(xml, "Command"),
+    arguments: xmlElement(xml, "Arguments"),
+    workingDirectory: xmlElement(xml, "WorkingDirectory"),
+  };
+}
+
+function sameWindowsPath(left, right) {
+  return path.win32.normalize(String(left)).toLowerCase()
+    === path.win32.normalize(String(right)).toLowerCase();
+}
+
+export function windowsTaskMatchesConfiguration(xml, config) {
+  const actual = windowsTaskActionFromXml(xml);
+  const expected = windowsStartupAction(config);
+  return sameWindowsPath(actual.command, expected.command)
+    && actual.arguments === expected.arguments
+    && sameWindowsPath(actual.workingDirectory, expected.workingDirectory);
+}
+
+export function processAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+export async function readDaemonOwnerPid(config) {
+  try {
+    const value = JSON.parse(await readFile(
+      path.join(config.paths.locks, daemonLockName),
+      "utf8",
+    ));
+    const pid = Number(value?.pid);
+    return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function waitForProcessExit(
+  pid,
+  { timeoutMs = 2_000, pollMs = 25, alive = processAlive } = {},
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (alive(pid) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  return !alive(pid);
+}
+
+async function waitForDaemonActive(config, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const pid = await readDaemonOwnerPid(config);
+    if (pid && processAlive(pid)) return pid;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  } while (Date.now() < deadline);
+  return null;
+}
+
+async function removeDeadDaemonLock(config, expectedPid) {
+  if (!expectedPid || processAlive(expectedPid)) return;
+  const filename = path.join(config.paths.locks, daemonLockName);
+  if (await readDaemonOwnerPid(config) !== expectedPid) return;
+  const retired = `${filename}.retired-${process.pid}`;
+  try {
+    await rename(filename, retired);
+    await rm(retired, { force: true });
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
 function systemdQuote(value) {
   const text = String(value);
   if (/[\r\n\0]/.test(text)) throw new Error("systemd arguments cannot contain control lines");
@@ -121,16 +210,20 @@ async function currentUserSid() {
 
 async function windowsStatus(config) {
   try {
-    await execFileAsync(
+    const { stdout } = await execFileAsync(
       "schtasks.exe",
-      ["/Query", "/TN", windowsTaskName],
+      ["/Query", "/TN", windowsTaskName, "/XML"],
       { windowsHide: true, timeout: 10_000 },
     );
+    const action = windowsTaskActionFromXml(stdout);
+    const daemonPid = await readDaemonOwnerPid(config);
     return {
       platform: "windows",
       installed: true,
       taskName: windowsTaskName,
-      action: windowsStartupAction(config),
+      active: Boolean(daemonPid && processAlive(daemonPid)),
+      matchesCurrentConfiguration: windowsTaskMatchesConfiguration(stdout, config),
+      action,
     };
   } catch (error) {
     if (error.code === 1) return { platform: "windows", installed: false, taskName: windowsTaskName };
@@ -160,6 +253,9 @@ async function installWindows(config) {
       ["/Run", "/TN", windowsTaskName],
       { windowsHide: true, timeout: 10_000 },
     );
+    if (!await waitForDaemonActive(config)) {
+      throw new Error("Evidence startup task did not produce a live daemon within five seconds");
+    }
   } finally {
     await rm(temporary, { force: true });
   }
@@ -173,16 +269,25 @@ async function installWindows(config) {
     path.join(config.workspace, "startup-task.json"),
     `${JSON.stringify(evidence, null, 2)}\n`,
   );
-  return windowsStatus(config);
+  const status = await windowsStatus(config);
+  if (!status.active || !status.matchesCurrentConfiguration) {
+    throw new Error("Evidence startup task is not active with the current configuration");
+  }
+  return status;
 }
 
 async function uninstallWindows(config) {
+  const daemonPid = await readDaemonOwnerPid(config);
   try {
     await execFileAsync("schtasks.exe", ["/End", "/TN", windowsTaskName], {
       windowsHide: true,
       timeout: 10_000,
     });
   } catch {}
+  if (daemonPid && !await waitForProcessExit(daemonPid)) {
+    throw new Error(`Evidence daemon ${daemonPid} did not stop within two seconds`);
+  }
+  await removeDeadDaemonLock(config, daemonPid);
   try {
     await execFileAsync("schtasks.exe", ["/Delete", "/TN", windowsTaskName, "/F"], {
       windowsHide: true,
@@ -195,7 +300,7 @@ async function uninstallWindows(config) {
   return { platform: "windows", installed: false, taskName: windowsTaskName };
 }
 
-async function linuxStatus() {
+async function linuxStatus(config) {
   const unitPath = linuxUserUnitPath();
   if (!existsSync(unitPath)) {
     return { platform: "linux", installed: false, unitName: linuxUnitName, unitPath };
@@ -214,7 +319,20 @@ async function linuxStatus() {
     });
     active = true;
   } catch {}
-  return { platform: "linux", installed: true, enabled, active, unitName: linuxUnitName, unitPath };
+  let matchesCurrentConfiguration = false;
+  try {
+    matchesCurrentConfiguration = await readFile(unitPath, "utf8")
+      === buildLinuxUserUnit(config);
+  } catch {}
+  return {
+    platform: "linux",
+    installed: true,
+    enabled,
+    active,
+    matchesCurrentConfiguration,
+    unitName: linuxUnitName,
+    unitPath,
+  };
 }
 
 async function installLinux(config) {
@@ -236,7 +354,11 @@ async function installLinux(config) {
     path.join(config.workspace, "startup-task.json"),
     `${JSON.stringify(evidence, null, 2)}\n`,
   );
-  return linuxStatus();
+  const status = await linuxStatus(config);
+  if (!status.enabled || !status.active || !status.matchesCurrentConfiguration) {
+    throw new Error("Evidence systemd user service is not active with the current configuration");
+  }
+  return status;
 }
 
 async function uninstallLinux(config) {

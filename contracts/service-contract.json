@@ -1,7 +1,7 @@
 {
   "schema": "uci_arena_standalone_service_contract_v1",
   "component_id": "uci_arena_evidence.service",
-  "component_version": "0.3.2",
+  "component_version": "0.3.3",
   "cli_entrypoint": "services/evidence-service/src/cli.mjs",
   "configuration_schema": "uci_arena_evidence_service_config_v1",
   "status_schema": "uci_arena_evidence_status_v1",
@@ -38,6 +38,7 @@
       "outputs_inspect",
       "config_validate",
       "orchestration_status",
+      "target_register",
       "campaign_enqueue",
       "job_control"
     ],

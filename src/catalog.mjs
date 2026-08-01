@@ -301,6 +301,19 @@ export class Catalog {
     return rows.map(targetRow);
   }
 
+  findExactTarget(target) {
+    const expectedOptions = JSON.stringify(target.uciOptions ?? {});
+    return this.targets().find((candidate) =>
+      candidate.modelId === target.modelId
+      && candidate.modelRoot === path.resolve(target.modelRoot)
+      && candidate.modelFingerprint === target.modelFingerprint
+      && candidate.enginePath === path.resolve(target.enginePath)
+      && candidate.engineSha256 === target.engineSha256.toLowerCase()
+      && candidate.provider === target.provider
+      && candidate.hardwareDriverFingerprint === (target.hardwareDriverFingerprint || "")
+      && JSON.stringify(candidate.uciOptions) === expectedOptions) ?? null;
+  }
+
   removeTarget(id) {
     const references = this.database.prepare(`
       SELECT COUNT(*) AS count FROM jobs
