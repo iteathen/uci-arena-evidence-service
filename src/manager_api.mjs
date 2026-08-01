@@ -23,6 +23,8 @@ const OPERATIONS = Object.freeze([
 ]);
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const ORCHESTRATION_TARGET_LIMIT = 64;
+const ORCHESTRATION_JOB_LIMIT = 512;
 
 function envelope(operation, payload) {
   return {
@@ -215,6 +217,14 @@ function targetSummary(target) {
   };
 }
 
+function boundedDiagnostic(value) {
+  return String(value ?? "")
+    .slice(0, 2_048)
+    .replace(/[A-Za-z]:[\\/][^\s,;)]*/gu, "[path]")
+    .replace(/\\\\[^\\\s]+\\[^\s,;)]*/gu, "[path]")
+    .replace(/(^|[\s=:(])\/(?:[^\s,;)]+\/?)+/gu, "$1[path]");
+}
+
 function jobSummary(job) {
   if (!UUID_V4.test(job.id ?? "")) throw new Error("Evidence job id is malformed");
   return {
@@ -226,18 +236,32 @@ function jobSummary(job) {
     shard_id: String(job.shardId ?? "").slice(0, 256),
     dataset_id: job.datasetId,
     attempts: Number(job.attempts),
-    wait_reason: String(job.waitReason ?? "").slice(0, 2_048),
-    last_error: String(job.lastError ?? "").slice(0, 2_048),
+    wait_reason: boundedDiagnostic(job.waitReason),
+    last_error: boundedDiagnostic(job.lastError),
     created_at: job.createdAt,
     updated_at: job.updatedAt,
   };
 }
 
 export function orchestrationStatusApi(catalog) {
+  const targets = catalog.targets({
+    limit: ORCHESTRATION_TARGET_LIMIT + 1,
+    newestFirst: true,
+  });
+  const jobs = catalog.jobs({
+    limit: ORCHESTRATION_JOB_LIMIT + 1,
+    activeFirst: true,
+  });
   return envelope("orchestration_status", {
     schema: "uci_arena_evidence_orchestration_v1",
-    targets: catalog.targets().map(targetSummary),
-    jobs: catalog.jobs().map(jobSummary),
+    limits: {
+      targets: ORCHESTRATION_TARGET_LIMIT,
+      jobs: ORCHESTRATION_JOB_LIMIT,
+    },
+    targets_truncated: targets.length > ORCHESTRATION_TARGET_LIMIT,
+    jobs_truncated: jobs.length > ORCHESTRATION_JOB_LIMIT,
+    targets: targets.slice(0, ORCHESTRATION_TARGET_LIMIT).map(targetSummary),
+    jobs: jobs.slice(0, ORCHESTRATION_JOB_LIMIT).map(jobSummary),
   });
 }
 

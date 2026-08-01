@@ -109,6 +109,9 @@ test("Manager API exposes bounded orchestration and only built-in campaign contr
 
   const projected = orchestrationStatusApi(catalog);
   assert.equal(projected.payload.schema, "uci_arena_evidence_orchestration_v1");
+  assert.deepEqual(projected.payload.limits, { targets: 64, jobs: 512 });
+  assert.equal(projected.payload.targets_truncated, false);
+  assert.equal(projected.payload.jobs_truncated, false);
   assert.equal(projected.payload.targets.length, 1);
   assert.equal(Object.hasOwn(projected.payload.targets[0], "modelRoot"), false);
   assert.equal(Object.hasOwn(projected.payload.targets[0], "enginePath"), false);
@@ -117,6 +120,16 @@ test("Manager API exposes bounded orchestration and only built-in campaign contr
   assert.equal(Object.hasOwn(projected.payload.jobs[0], "fingerprint"), false);
 
   const jobId = projected.payload.jobs[0].id;
+  catalog.transitionJob(jobId, "waiting_for_resources", {
+    waitReason: "blocked by C:\\private\\engine.exe and /private/model/root",
+    error: "failed at \\\\server\\private\\artifact.bin",
+  });
+  const redacted = orchestrationStatusApi(catalog).payload.jobs[0];
+  assert.equal(redacted.wait_reason.includes("C:\\private"), false);
+  assert.equal(redacted.wait_reason.includes("/private/model"), false);
+  assert.equal(redacted.last_error.includes("\\\\server\\private"), false);
+  assert.match(redacted.wait_reason, /\[path\]/u);
+  assert.match(redacted.last_error, /\[path\]/u);
   assert.equal(controlJobApi(catalog, jobId, "cancel").payload.job.state, "cancelled");
   assert.equal(controlJobApi(catalog, jobId, "retry").payload.job.state, "queued");
   assert.throws(
@@ -127,6 +140,36 @@ test("Manager API exposes bounded orchestration and only built-in campaign contr
     () => enqueueCampaignApi(catalog, "not-a-target"),
     /target id is malformed/,
   );
+});
+
+test("Manager orchestration status applies exact collection caps", () => {
+  const uuid = (index) => `00000000-0000-4000-8000-${index.toString(16).padStart(12, "0")}`;
+  const targets = Array.from({ length: 65 }, (_, index) => ({
+    id: uuid(index),
+    modelId: `model-${index}`,
+  }));
+  const jobs = Array.from({ length: 513 }, (_, index) => ({
+    id: uuid(index + 1_000),
+    state: "queued",
+    priority: index,
+  }));
+  const catalog = {
+    targets(options) {
+      assert.deepEqual(options, { limit: 65, newestFirst: true });
+      return targets;
+    },
+    jobs(options) {
+      assert.deepEqual(options, { limit: 513, activeFirst: true });
+      return jobs;
+    },
+  };
+
+  const projected = orchestrationStatusApi(catalog).payload;
+
+  assert.equal(projected.targets_truncated, true);
+  assert.equal(projected.jobs_truncated, true);
+  assert.equal(projected.targets.length, 64);
+  assert.equal(projected.jobs.length, 512);
 });
 
 test("provider definition advertises the same Manager API contract", async () => {

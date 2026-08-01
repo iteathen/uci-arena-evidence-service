@@ -251,7 +251,8 @@ manager_integration_api:
   rules:
     - "The installed component manifest is the only discovery authority for the API entrypoint, version, transport, and invocation prefix."
     - "Manager invokes the service CLI and consumes one JSON response; Evidence Service never calls or imports Manager."
-    - "The orchestration projection exposes bounded target identity summaries and job lifecycle summaries without paths, job configuration, fingerprints used only for catalog deduplication, or raw evidence."
+    - "The orchestration projection exposes at most 64 newest target identity summaries and 512 job lifecycle summaries, prioritizing unfinished jobs before the most recently updated terminal jobs. It publishes the exact limits and truncation flags."
+    - "Orchestration summaries contain no paths, job configuration, fingerprints used only for catalog deduplication, or raw evidence; bounded wait/error diagnostics replace absolute Windows, UNC, and POSIX paths with a redaction marker."
     - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID; Manager cannot submit arbitrary adapters, flags, or commands through this API."
     - "Job control is limited to cancel and retry against a service-issued job UUID and preserves the service-owned lifecycle rules."
     - "Dataset records expose stable identity, state, observation count, target identity, explicit authority, and a typed dataset-export invocation without exposing raw observations."
