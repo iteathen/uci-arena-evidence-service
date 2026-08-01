@@ -15,6 +15,7 @@ import {
   inspectOutputApi,
   listOutputsApi,
   orchestrationStatusApi,
+  registerTargetApi,
   statusApi,
   validateConfigApi,
 } from "../src/manager_api.mjs";
@@ -139,6 +140,45 @@ test("Manager API exposes bounded orchestration and only built-in campaign contr
   assert.throws(
     () => enqueueCampaignApi(catalog, "not-a-target"),
     /target id is malformed/,
+  );
+});
+
+test("Manager API registers exact targets idempotently and hashes the engine itself", async (t) => {
+  const { catalog, config } = await fixture(t);
+  const modelRoot = path.join(config.workspace, "model");
+  await import("node:fs/promises").then(({ mkdir }) => mkdir(modelRoot));
+  const input = {
+    label: "LatticeKnight-4M deployment",
+    modelId: "compact_chessformer_gab_v1",
+    modelRoot,
+    modelFingerprint: "8104116015256418347",
+    enginePath: process.execPath,
+    provider: "cpu",
+    hardwareDriverFingerprint: "5805769137532863231",
+    uciOptions: { Threads: 1, Ponder: false },
+  };
+  const created = registerTargetApi(catalog, input);
+  assert.equal(created.operation, "target_register");
+  assert.equal(created.payload.created, true);
+  assert.match(created.payload.target.id, /^[0-9a-f-]{36}$/u);
+  assert.match(created.payload.target.engine_sha256, /^[0-9a-f]{64}$/u);
+  assert.equal(catalog.targets().length, 1);
+
+  const reused = registerTargetApi(catalog, {
+    ...input,
+    uciOptions: { Ponder: false, Threads: 1 },
+  });
+  assert.equal(reused.payload.created, false);
+  assert.equal(reused.payload.target.id, created.payload.target.id);
+  assert.equal(catalog.targets().length, 1);
+
+  assert.throws(
+    () => registerTargetApi(catalog, { ...input, modelRoot: "relative/model" }),
+    /model root path must be absolute/,
+  );
+  assert.throws(
+    () => registerTargetApi(catalog, { ...input, uciOptions: { Bad: { nested: true } } }),
+    /invalid value/,
   );
 });
 

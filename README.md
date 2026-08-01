@@ -60,11 +60,15 @@ games, fixed-identity Stockfish depth 8/10/12/14 anchors, and finally
 `40/120+5`. Campaign evidence cannot displace the tracked `EarlyCurrent` live
 authority by itself.
 
-UCI Arena Manager uses the component-declared API for the same bounded workflow:
-it can inspect redacted target/job summaries, enqueue only this built-in first
-campaign, and cancel or retry service-issued job IDs. The Manager API cannot
-submit arbitrary adapters, flags, paths, or commands and never opens the service
-catalog directly.
+UCI Arena Manager uses the component-declared API for the same bounded workflow.
+Its Services page can turn an already registered, receipt-verified UCI Arena
+Engine into an exact Evidence target without asking the operator for paths or
+JSON. Manager repeats the universal UCI probe and passes only typed identity
+fields; Evidence validates both paths, hashes the engine, and idempotently owns
+target creation. Manager can then inspect redacted target/job summaries, enqueue
+only the built-in first campaign, and cancel or retry service-issued job IDs.
+The API cannot submit arbitrary adapters, flags, browser-selected paths, or
+commands and never opens the service catalog directly.
 
 ## Background resource behavior
 
@@ -107,6 +111,13 @@ node src/cli.mjs startup install
 node src/cli.mjs startup status
 node src/cli.mjs startup uninstall
 ```
+
+Install first drains any prior registration and exact lock-owning daemon, then
+reports success only after the task matches the current package and
+configuration and the replacement daemon is active. Status reports registration,
+configuration agreement, and activity independently. Uninstall waits up to two
+seconds for the exact lock-owning daemon to exit and removes only its dead lock;
+this prevents repair or upgrade from racing a replacement daemon.
 
 Linux installs a `systemd --user` unit with low CPU/I/O weight:
 

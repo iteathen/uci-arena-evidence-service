@@ -1,8 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
+import path from "node:path";
 
 import { listQualifiedProfiles } from "./profiles.mjs";
 import { enqueueFirstCampaign } from "./campaign.mjs";
+import { sha256File } from "./identity.mjs";
 
 const API_SCHEMA = "uci_arena_manager_service_api_v1";
 const API_VERSION = "1.0";
@@ -18,6 +20,7 @@ const OPERATIONS = Object.freeze([
   "outputs_inspect",
   "config_validate",
   "orchestration_status",
+  "target_register",
   "campaign_enqueue",
   "job_control",
 ]);
@@ -215,6 +218,79 @@ function targetSummary(target) {
     provider: String(target.provider ?? "").slice(0, 128),
     created_at: target.createdAt,
   };
+}
+
+function normalizedUciOptions(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Evidence target UCI options must be an object");
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 128) throw new Error("Evidence target has too many UCI options");
+  const normalized = {};
+  for (const [name, optionValue] of entries.sort(([left], [right]) => left.localeCompare(right))) {
+    if (!name.length || name.length > 128 || /[\u0000-\u001f\u007f]/u.test(name)) {
+      throw new Error("Evidence target UCI option name is invalid");
+    }
+    if (!["string", "boolean", "number"].includes(typeof optionValue)
+        || (typeof optionValue === "number" && !Number.isSafeInteger(optionValue))
+        || (typeof optionValue === "string" && optionValue.length > 512)) {
+      throw new Error(`Evidence target UCI option ${name} has an invalid value`);
+    }
+    normalized[name] = optionValue;
+  }
+  return normalized;
+}
+
+function exactPath(value, kind) {
+  const candidate = String(value ?? "");
+  if (!path.isAbsolute(candidate)) throw new Error(`Evidence target ${kind} path must be absolute`);
+  const resolved = path.resolve(candidate);
+  const status = lstatSync(resolved);
+  if (kind === "engine" ? !status.isFile() : !status.isDirectory()) {
+    throw new Error(`Evidence target ${kind} path has the wrong type`);
+  }
+  return resolved;
+}
+
+export function registerTargetApi(catalog, input) {
+  const modelId = String(input.modelId ?? "");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(modelId)) {
+    throw new Error("Evidence target model id is invalid");
+  }
+  const modelFingerprint = String(input.modelFingerprint ?? "");
+  if (!/^\d{1,20}$/u.test(modelFingerprint)) {
+    throw new Error("Evidence target model fingerprint is invalid");
+  }
+  const provider = String(input.provider ?? "");
+  if (!new Set(["auto", "cpu", "directml", "cuda"]).has(provider)) {
+    throw new Error("Evidence target provider is invalid");
+  }
+  const providerFingerprint = String(input.hardwareDriverFingerprint ?? "");
+  if (providerFingerprint && !/^\d{1,20}$/u.test(providerFingerprint)) {
+    throw new Error("Evidence target provider fingerprint is invalid");
+  }
+  const label = String(input.label || modelId);
+  if (!label.length || label.length > 256 || /[\u0000-\u001f\u007f]/u.test(label)) {
+    throw new Error("Evidence target label is invalid");
+  }
+  const target = {
+    label,
+    modelId,
+    modelRoot: exactPath(input.modelRoot, "model root"),
+    modelFingerprint,
+    enginePath: exactPath(input.enginePath, "engine"),
+    provider,
+    hardwareDriverFingerprint: providerFingerprint,
+    uciOptions: normalizedUciOptions(input.uciOptions ?? {}),
+  };
+  target.engineSha256 = sha256File(target.enginePath);
+  const existing = catalog.findExactTarget(target);
+  const registered = existing ?? catalog.addTarget(target);
+  return envelope("target_register", {
+    schema: "uci_arena_evidence_target_register_v1",
+    created: !existing,
+    target: targetSummary(registered),
+  });
 }
 
 function boundedDiagnostic(value) {

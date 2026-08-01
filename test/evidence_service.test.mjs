@@ -32,6 +32,10 @@ import {
   buildLinuxUserUnit,
   buildWindowsTaskXml,
   linuxUnitName,
+  waitForProcessExit,
+  windowsStartupAction,
+  windowsTaskActionFromXml,
+  windowsTaskMatchesConfiguration,
 } from "../src/platform_startup.mjs";
 import { listQualifiedProfiles } from "../src/profiles.mjs";
 import { ResourceGovernor } from "../src/resource_governor.mjs";
@@ -1036,6 +1040,18 @@ test("platform startup definitions preserve low-priority cleanup contracts", asy
   const windows = buildWindowsTaskXml(config, "S-1-5-21-1");
   assert.match(windows, /MultipleInstancesPolicy>IgnoreNew/);
   assert.match(windows, /ExecutionTimeLimit>PT0S/);
+  assert.deepEqual(
+    windowsTaskActionFromXml(windows),
+    windowsStartupAction(config),
+  );
+  assert.equal(windowsTaskMatchesConfiguration(windows, config), true);
+  assert.equal(
+    windowsTaskMatchesConfiguration(
+      windows.replace(config.workspace, `${config.workspace}-changed`),
+      config,
+    ),
+    false,
+  );
   const linux = buildLinuxUserUnit(config);
   assert.match(linux, new RegExp(`Description=UCI Arena Evidence Service`));
   assert.match(linux, /Nice=15/);
@@ -1043,6 +1059,25 @@ test("platform startup definitions preserve low-priority cleanup contracts", asy
   assert.match(linux, /IOWeight=10/);
   assert.match(linux, /KillMode=control-group/);
   assert.equal(linuxUnitName, "uci-arena-evidence.service");
+});
+
+test("startup teardown waits for the exact process with a bounded deadline", async () => {
+  let aliveChecks = 0;
+  assert.equal(await waitForProcessExit(42, {
+    timeoutMs: 100,
+    pollMs: 1,
+    alive: () => ++aliveChecks < 3,
+  }), true);
+  assert.ok(aliveChecks >= 3);
+
+  const started = Date.now();
+  assert.equal(await waitForProcessExit(42, {
+    timeoutMs: 20,
+    pollMs: 1,
+    alive: () => true,
+  }), false);
+  assert.ok(Date.now() - started >= 15);
+  assert.ok(Date.now() - started < 250);
 });
 
 test("cross-platform child shutdown removes the owned process tree within two seconds", async (t) => {

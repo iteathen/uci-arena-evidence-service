@@ -48,6 +48,19 @@ runtime:
   startup:
     windows: per_user_windows_task_scheduler_logon_task
     linux: systemd_user_service
+    lifecycle_verification:
+      - Startup install succeeds only when the generated registration matches
+        the current package, workspace, and configuration and the daemon is
+        observed active. Install first drains any existing registration and
+        exact lock-owning daemon through the same verified uninstall path, so
+        upgrading from an older provider cannot race its delayed Job Object
+        teardown.
+      - Startup uninstall reads the owned daemon lock before requesting stop,
+        waits at most two seconds for that exact process to exit, and fails
+        closed instead of racing payload replacement or a new daemon. After
+        verified exit it removes only a lock still owned by that dead process.
+      - Startup status reports registration presence, current-configuration
+        agreement, and live daemon activity as separate fields.
   single_instance: true
   heartbeat_seconds: 15
   stale_seconds: 300
@@ -77,6 +90,7 @@ runtime:
     - api_outputs_list
     - api_outputs_inspect
     - api_config_validate
+    - api_target_register
 
 target_resolution:
   active_pointer: runtime_state/active_model_runtime.json
@@ -245,6 +259,7 @@ manager_integration_api:
     - outputs_inspect
     - config_validate
     - orchestration_status
+    - target_register
     - campaign_enqueue
     - job_control
   output_schema: uci_arena_service_output_v1
@@ -253,6 +268,8 @@ manager_integration_api:
     - "The installed component manifest is the only discovery authority for the API entrypoint, version, transport, and invocation prefix."
     - "Manager invokes the service CLI and consumes one JSON response; Evidence Service never calls or imports Manager."
     - "The orchestration projection exposes at most 64 newest target identity summaries and 512 job lifecycle summaries, prioritizing unfinished jobs before the most recently updated terminal jobs. It publishes the exact limits and truncation flags."
+    - "Target register accepts one exact typed deployment supplied by Manager from an already registered engine resource. Evidence validates absolute regular-file and directory paths, hashes the engine itself, permits only the provider allowlist and bounded scalar UCI options, and returns the existing target when every identity field is unchanged."
+    - "Target register never accepts a command, adapter, arbitrary argv, browser-selected executable, engine digest, or provider-private configuration. Manager remains UCI probe authority and Evidence remains target identity authority."
     - "Orchestration summaries contain no paths, job configuration, fingerprints used only for catalog deduplication, or raw evidence; bounded wait/error diagnostics replace absolute Windows, UNC, and POSIX paths with a redaction marker."
     - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID; Manager cannot submit arbitrary adapters, flags, or commands through this API."
     - "Job control is limited to cancel and retry against a service-issued job UUID and preserves the service-owned lifecycle rules."
@@ -301,6 +318,9 @@ validation:
     - foreground_training_and_match_regression_at_most_two_percent
     - windows_task_scheduler_contract_test
     - linux_systemd_user_unit_contract_test
+    - startup_install_active_and_current_configuration_contract_tests
+    - startup_uninstall_bounded_exact_daemon_exit_contract_test
+    - idempotent_typed_manager_target_registration_test
     - windows_job_object_and_linux_process_group_cleanup_tests
 
 relocatable_install:

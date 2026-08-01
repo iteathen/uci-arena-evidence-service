@@ -18,6 +18,7 @@ import {
   inspectOutputApi,
   listOutputsApi,
   orchestrationStatusApi,
+  registerTargetApi,
   statusApi,
   validateConfigApi,
 } from "./manager_api.mjs";
@@ -100,6 +101,7 @@ function usage() {
   arena-evidence api outputs inspect --id OUTPUT_ID
   arena-evidence api config validate
   arena-evidence api orchestration status
+  arena-evidence api target register --model-id ID --model-root PATH --model-fingerprint N --engine PATH --provider NAME [--provider-fingerprint N] [--uci-options-json JSON]
   arena-evidence api campaign enqueue [--target UUID]
   arena-evidence api job control --id UUID --action cancel|retry
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
@@ -137,6 +139,22 @@ async function main(argv = process.argv.slice(2)) {
     } else if (command === "api" && subcommand === "orchestration"
         && positional[2] === "status") {
       output(orchestrationStatusApi(catalog));
+    } else if (command === "api" && subcommand === "target"
+        && positional[2] === "register") {
+      const required = ["model-id", "model-root", "model-fingerprint", "engine", "provider"];
+      for (const name of required) {
+        if (!flags[name]) throw new Error(`api target register requires --${name}`);
+      }
+      output(registerTargetApi(catalog, {
+        label: flags.label || flags["model-id"],
+        modelId: flags["model-id"],
+        modelRoot: flags["model-root"],
+        modelFingerprint: flags["model-fingerprint"],
+        enginePath: flags.engine,
+        provider: flags.provider,
+        hardwareDriverFingerprint: flags["provider-fingerprint"] || "",
+        uciOptions: flags["uci-options-json"] ? JSON.parse(flags["uci-options-json"]) : {},
+      }));
     } else if (command === "api" && subcommand === "campaign"
         && positional[2] === "enqueue") {
       output(enqueueCampaignApi(catalog, flags.target || null));
