@@ -12,9 +12,12 @@ import { runDaemon } from "./daemon.mjs";
 import { sha256File } from "./identity.mjs";
 import {
   apiError,
+  controlJobApi,
   describeApi,
+  enqueueCampaignApi,
   inspectOutputApi,
   listOutputsApi,
+  orchestrationStatusApi,
   statusApi,
   validateConfigApi,
 } from "./manager_api.mjs";
@@ -96,6 +99,9 @@ function usage() {
   arena-evidence api outputs list [--cursor SHA256]
   arena-evidence api outputs inspect --id OUTPUT_ID
   arena-evidence api config validate
+  arena-evidence api orchestration status
+  arena-evidence api campaign enqueue [--target UUID]
+  arena-evidence api job control --id UUID --action cancel|retry
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
   arena-evidence startup install|status|uninstall
 
@@ -128,6 +134,18 @@ async function main(argv = process.argv.slice(2)) {
     } else if (command === "api" && subcommand === "config"
         && positional[2] === "validate") {
       output(validateConfigApi(config));
+    } else if (command === "api" && subcommand === "orchestration"
+        && positional[2] === "status") {
+      output(orchestrationStatusApi(catalog));
+    } else if (command === "api" && subcommand === "campaign"
+        && positional[2] === "enqueue") {
+      output(enqueueCampaignApi(catalog, flags.target || null));
+    } else if (command === "api" && subcommand === "job"
+        && positional[2] === "control") {
+      if (!flags.id || !flags.action) {
+        throw new Error("api job control requires --id and --action");
+      }
+      output(controlJobApi(catalog, flags.id, flags.action));
     } else if (command === "init") {
       output({ schema: "uci_arena_evidence_init_v1", workspace: config.workspace, status: catalog.status() });
     } else if (command === "daemon") {

@@ -9,9 +9,12 @@ import { promisify } from "node:util";
 import { Catalog } from "../src/catalog.mjs";
 import { loadConfig } from "../src/config.mjs";
 import {
+  controlJobApi,
   describeApi,
+  enqueueCampaignApi,
   inspectOutputApi,
   listOutputsApi,
+  orchestrationStatusApi,
   statusApi,
   validateConfigApi,
 } from "../src/manager_api.mjs";
@@ -84,6 +87,45 @@ test("Manager API rejects malformed cursors and output identities", async (t) =>
   assert.throws(
     () => inspectOutputApi(catalog, config, "dataset:../catalog.sqlite"),
     /output id is malformed/,
+  );
+});
+
+test("Manager API exposes bounded orchestration and only built-in campaign controls", async (t) => {
+  const { catalog } = await fixture(t);
+  const target = catalog.addTarget({
+    label: "LatticeKnight",
+    modelId: "latticeknight",
+    modelRoot: "C:/private/model/root",
+    modelFingerprint: "model-fingerprint",
+    enginePath: "C:/private/engine.exe",
+    engineSha256: "a".repeat(64),
+    provider: "directml",
+    hardwareDriverFingerprint: "private-driver",
+    uciOptions: { SecretLookingInternalOption: "not projected" },
+  });
+  const enqueued = enqueueCampaignApi(catalog, target.id);
+  assert.equal(enqueued.operation, "campaign_enqueue");
+  assert.ok(enqueued.payload.jobs.length > 1);
+
+  const projected = orchestrationStatusApi(catalog);
+  assert.equal(projected.payload.schema, "uci_arena_evidence_orchestration_v1");
+  assert.equal(projected.payload.targets.length, 1);
+  assert.equal(Object.hasOwn(projected.payload.targets[0], "modelRoot"), false);
+  assert.equal(Object.hasOwn(projected.payload.targets[0], "enginePath"), false);
+  assert.equal(Object.hasOwn(projected.payload.targets[0], "uciOptions"), false);
+  assert.equal(Object.hasOwn(projected.payload.jobs[0], "config"), false);
+  assert.equal(Object.hasOwn(projected.payload.jobs[0], "fingerprint"), false);
+
+  const jobId = projected.payload.jobs[0].id;
+  assert.equal(controlJobApi(catalog, jobId, "cancel").payload.job.state, "cancelled");
+  assert.equal(controlJobApi(catalog, jobId, "retry").payload.job.state, "queued");
+  assert.throws(
+    () => controlJobApi(catalog, jobId, "delete"),
+    /must be cancel or retry/,
+  );
+  assert.throws(
+    () => enqueueCampaignApi(catalog, "not-a-target"),
+    /target id is malformed/,
   );
 });
 

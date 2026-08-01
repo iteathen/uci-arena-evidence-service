@@ -237,12 +237,23 @@ manager_integration_api:
   version: '1.0'
   transport: cli_json
   invocation: [api]
-  operations: [describe, status, outputs_list, outputs_inspect, config_validate]
+  operations:
+    - describe
+    - status
+    - outputs_list
+    - outputs_inspect
+    - config_validate
+    - orchestration_status
+    - campaign_enqueue
+    - job_control
   output_schema: uci_arena_service_output_v1
   output_kinds: [evidence.dataset, timing_profile.qualified]
   rules:
     - "The installed component manifest is the only discovery authority for the API entrypoint, version, transport, and invocation prefix."
     - "Manager invokes the service CLI and consumes one JSON response; Evidence Service never calls or imports Manager."
+    - "The orchestration projection exposes bounded target identity summaries and job lifecycle summaries without paths, job configuration, fingerprints used only for catalog deduplication, or raw evidence."
+    - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID; Manager cannot submit arbitrary adapters, flags, or commands through this API."
+    - "Job control is limited to cancel and retry against a service-issued job UUID and preserves the service-owned lifecycle rules."
     - "Dataset records expose stable identity, state, observation count, target identity, explicit authority, and a typed dataset-export invocation without exposing raw observations."
     - "Profile records expose only profiles admitted by listQualifiedProfiles, including exact file digest, target identity, permissions, publication identity, and controlled regular-file path."
     - "Output inspect accepts only service-issued dataset UUID or profile SHA-256 identities."
