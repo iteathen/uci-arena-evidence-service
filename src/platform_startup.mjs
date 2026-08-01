@@ -235,6 +235,7 @@ async function installWindows(config) {
   if (!config.nativeLauncherAvailable) {
     throw new Error(`windowless launcher is unavailable: ${config.nativeLauncher}`);
   }
+  await uninstallWindows(config);
   const sid = await currentUserSid();
   const xml = buildWindowsTaskXml(config, sid);
   const temporary = path.join(config.paths.locks, `startup-${process.pid}.xml`);
@@ -336,6 +337,7 @@ async function linuxStatus(config) {
 }
 
 async function installLinux(config) {
+  await uninstallLinux(config);
   const unitPath = linuxUserUnitPath();
   await mkdir(path.dirname(unitPath), { recursive: true });
   await writeFile(unitPath, buildLinuxUserUnit(config), "utf8");

@@ -51,7 +51,10 @@ runtime:
     lifecycle_verification:
       - Startup install succeeds only when the generated registration matches
         the current package, workspace, and configuration and the daemon is
-        observed active.
+        observed active. Install first drains any existing registration and
+        exact lock-owning daemon through the same verified uninstall path, so
+        upgrading from an older provider cannot race its delayed Job Object
+        teardown.
       - Startup uninstall reads the owned daemon lock before requesting stop,
         waits at most two seconds for that exact process to exit, and fails
         closed instead of racing payload replacement or a new daemon. After

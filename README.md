@@ -112,8 +112,9 @@ node src/cli.mjs startup status
 node src/cli.mjs startup uninstall
 ```
 
-Install reports success only after the task matches the current package and
-configuration and the daemon is active. Status reports registration,
+Install first drains any prior registration and exact lock-owning daemon, then
+reports success only after the task matches the current package and
+configuration and the replacement daemon is active. Status reports registration,
 configuration agreement, and activity independently. Uninstall waits up to two
 seconds for the exact lock-owning daemon to exit and removes only its dead lock;
 this prevents repair or upgrade from racing a replacement daemon.
