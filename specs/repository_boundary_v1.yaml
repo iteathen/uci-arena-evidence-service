@@ -40,6 +40,7 @@ rules:
   - Source imports never escape the repository root.
   - UCI Arena, Book Forge, and Manager checkouts are unavailable to clean builds.
   - Vendored upstream packages are regular files and match the upstream lock.
+  - Windows provider payloads contain only application-local redistributable runtime libraries; OS-owned UCRT, API-set, and system-directory DLLs fail release construction.
   - Runner and referee implementations are absent from this repository.
   - Runtime contract mismatches fail before a job starts.
   - UCI Arena Installer is the only suite composition, assembly, and promotion
