@@ -343,6 +343,7 @@ relocatable_install:
   rules:
     - "Installed configuration may declare the absolute evidence-runtime component root. Resolution precedence is an explicit UCI_ARENA_EVIDENCE_RUNTIME_ROOT invocation override, then the validated configuration value, then the service package root development default."
     - "Configuration loading must preserve the selected runtime root instead of replacing it with the Evidence Service package root; repositoryRoot is a compatibility projection of that same selected runtime root, not a second authority."
+    - "The component artifact declares Evidence Service discovery as an active-root resource; Installer and Manager never infer that role from its component id."
     - "The component publishes a bounded installer-integration entrypoint that owns Evidence configuration and active-target document generation from declared dependency and timing-profile bindings."
     - "Installer supplies validated paths through the versioned installation context and does not interpret Evidence configuration fields, profile semantics, or active-target document contents."
     - "The component manifest declares the Evidence startup CLI, exact action arrays, workspace/configuration flags, root response shape, and mandatory configuration-match plus live-daemon evidence; Installer does not contain an Evidence-specific health branch."

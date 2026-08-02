@@ -104,6 +104,45 @@ function exactIdentifierSet(value) {
   return [...value].sort();
 }
 
+export function validatedDiscovery(candidate, entrypoints, files) {
+  if (!Array.isArray(candidate) || candidate.length === 0 || candidate.length > 16) {
+    throw new Error("component discovery declaration is invalid");
+  }
+  const kinds = new Set();
+  return candidate.map((entry) => {
+    if (!entry || Object.keys(entry).sort().join(",") !== "kind,locator"
+        || !/^[A-Za-z0-9._-]+$/u.test(entry.kind ?? "")
+        || kinds.has(entry.kind) || !entry.locator || Array.isArray(entry.locator)) {
+      throw new Error("component discovery entry is invalid");
+    }
+    kinds.add(entry.kind);
+    const locator = structuredClone(entry.locator);
+    if (locator.source === "active_root") {
+      if (Object.keys(locator).join(",") !== "source") {
+        throw new Error("active-root discovery locator is invalid");
+      }
+    } else if (locator.source === "entrypoint") {
+      if (Object.keys(locator).sort().join(",") !== "entrypoint,source"
+          || !/^[A-Za-z0-9._-]+$/u.test(locator.entrypoint ?? "")
+          || !Object.hasOwn(entrypoints, locator.entrypoint)) {
+        throw new Error("entrypoint discovery locator is invalid");
+      }
+    } else if (locator.source === "component_path") {
+      if (Object.keys(locator).sort().join(",") !== "path,source") {
+        throw new Error("component-path discovery locator is invalid");
+      }
+      locator.path = normalizedRelative(locator.path);
+      if (!files.some((file) => file.path === locator.path
+          || file.path.startsWith(`${locator.path}/`))) {
+        throw new Error("component-path discovery locator is unlisted");
+      }
+    } else {
+      throw new Error("component discovery locator source is invalid");
+    }
+    return { kind: entry.kind, locator };
+  });
+}
+
 export function validatedManagerIntegrationApi(candidate, entrypoints) {
   const entrypoint = candidate?.entrypoint;
   const operations = exactIdentifierSet(candidate?.operations);
@@ -459,6 +498,7 @@ export function buildComponent({
         );
       }
     }
+    const discovery = validatedDiscovery(definition.discovery, entrypoints, files);
     const manifest = {
       schema: "arena_install_component_v1",
       schema_version: 1,
@@ -466,6 +506,7 @@ export function buildComponent({
       component_version: version,
       target_triple: target,
       entrypoints,
+      discovery,
       ...(contractManifest ? { contract_manifest: contractManifest } : {}),
       ...(managerIntegrationApi
         ? { manager_integration_api: managerIntegrationApi }

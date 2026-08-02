@@ -1,6 +1,9 @@
 {
   "schema": "arena_provider_component_definition_v1",
   "component_id": "uci_arena_evidence.service",
+  "discovery": [
+    {"kind": "evidence_service", "locator": {"source": "active_root"}}
+  ],
   "source_repository": "iteathen/uci-arena-evidence-service",
   "package_json": "package.json",
   "native_toolchain_by_target": {
