@@ -436,7 +436,20 @@ export class Catalog {
     if (!job) throw new Error(`unknown job ${id}`);
     if (job.state === "running") throw new Error("running jobs must be preempted before cancellation");
     if (job.state === "completed") throw new Error("completed jobs cannot be cancelled");
-    return this.transitionJob(id, "cancelled");
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.transitionJob(id, "cancelled");
+      this.database.prepare(`
+        UPDATE datasets
+        SET state='cancelled',authority_json='{}',completed_at=?
+        WHERE id=? AND state!='completed'
+      `).run(nowIso(), job.datasetId);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return this.job(id);
   }
 
   retryJob(id) {
@@ -445,7 +458,20 @@ export class Catalog {
     if (!new Set(["failed", "cancelled"]).has(job.state)) {
       throw new Error("only failed or cancelled jobs can be retried");
     }
-    return this.transitionJob(id, "queued");
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.transitionJob(id, "queued");
+      this.database.prepare(`
+        UPDATE datasets
+        SET state='collecting',authority_json='{}',completed_at=NULL
+        WHERE id=? AND state!='completed'
+      `).run(job.datasetId);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return this.job(id);
   }
 
   startAttempt(jobId, paths = {}) {
