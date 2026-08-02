@@ -26,7 +26,33 @@
       {"source": "provider_stage/background_service_native", "target": "services/evidence-service/native"}
     ]
   },
-  "entrypoints": {"cli": "services/evidence-service/src/cli.mjs"},
+  "entrypoints": {
+    "cli": "services/evidence-service/src/cli.mjs",
+    "installer_integration": "services/evidence-service/src/installer_integration.mjs"
+  },
+  "installer_integration": {
+    "schema": "arena_provider_installer_integration_v1",
+    "schema_version": 1,
+    "entrypoint": "installer_integration",
+    "invocation": {
+      "kind": "dependency_runtime",
+      "runtime_component_id": "node_runtime.private",
+      "runtime_entrypoint": "node"
+    },
+    "arguments": ["--context"],
+    "workspace_name": "evidence-service",
+    "configure_when_disabled": false,
+    "dependency_bindings": [
+      {"name": "evidence_runtime_root", "component_id": "uci_arena_evidence.runtime", "source": "active_root", "required": true},
+      {"name": "engine", "component_id": "uci_arena.engine", "source": "entrypoint", "entrypoint": "uci", "required": true},
+      {"name": "model_root", "component_id": "uci_arena.engine", "source": "component_path", "path": "models/default", "required": true},
+      {"name": "stockfish", "component_id": "stockfish.engine", "source": "entrypoint", "entrypoint": "stockfish", "required": true},
+      {"name": "referee", "component_id": "uci_arena_evidence.runtime", "source": "entrypoint", "entrypoint": "referee", "required": true}
+    ],
+    "locator_bindings": [
+      {"name": "timing_profile", "kind": "timing_profile", "required": false}
+    ]
+  },
   "manager_integration_api": {
     "schema": "uci_arena_manager_service_api_v1",
     "version": "1.0",
