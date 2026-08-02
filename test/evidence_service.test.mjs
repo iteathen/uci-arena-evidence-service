@@ -84,6 +84,26 @@ async function workspace() {
   return config;
 }
 
+test("configuration preserves an explicit external Evidence Runtime root", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-runtime-root-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configuredRuntime = path.join(root, "external runtime");
+  const configFile = path.join(root, "manager-config.json");
+  writeFileSync(configFile, `${JSON.stringify({
+    schema: "uci_arena_evidence_service_config_v1",
+    runtimeRoot: configuredRuntime,
+  }, null, 2)}\n`, "utf8");
+
+  const config = await loadConfig({
+    configFile,
+    workspace: path.join(root, "workspace"),
+  });
+
+  assert.equal(config.runtimeRoot, path.resolve(configuredRuntime));
+  assert.equal(config.repositoryRoot, path.resolve(configuredRuntime));
+  assert.notEqual(config.runtimeRoot, packageRoot);
+});
+
 function closeWorkspaceAfter(t, config, catalog) {
   if (catalog) t.after(() => catalog.close());
   t.after(() => rm(config.workspace, { recursive: true, force: true }));

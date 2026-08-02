@@ -5,9 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 export const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-export const runtimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
+export const defaultRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
   ? path.resolve(process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT)
   : packageRoot;
+export const runtimeRoot = defaultRuntimeRoot;
 export const repositoryRoot = runtimeRoot;
 
 function defaultWorkspace() {
@@ -23,6 +24,7 @@ function executable(root, windowsName, unixName) {
 
 const defaults = {
   schema: "uci_arena_evidence_service_config_v1",
+  runtimeRoot: defaultRuntimeRoot,
   workspace: process.env.UCI_ARENA_EVIDENCE_ROOT || defaultWorkspace(),
   activeModelPointer: path.join(runtimeRoot, "runtime_state", "active_model_runtime.json"),
   runtimeModelsRoot: path.join(runtimeRoot, "runtime_state", "models"),
@@ -144,8 +146,11 @@ export async function loadConfig({ configFile, workspace } = {}) {
   }
   const config = merge(structuredClone(defaults), loaded);
   config.configFile = configFile ? path.resolve(configFile) : null;
-  config.repositoryRoot = runtimeRoot;
-  config.runtimeRoot = runtimeRoot;
+  const environmentRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim();
+  config.runtimeRoot = environmentRuntimeRoot
+    ? path.resolve(environmentRuntimeRoot)
+    : configuredPath(config.runtimeRoot, directory);
+  config.repositoryRoot = config.runtimeRoot;
   config.workspace = path.resolve(
     workspace ?? process.env.UCI_ARENA_EVIDENCE_ROOT ?? config.workspace,
   );
