@@ -132,7 +132,13 @@ test("Manager API exposes bounded orchestration and only built-in campaign contr
   assert.match(redacted.wait_reason, /\[path\]/u);
   assert.match(redacted.last_error, /\[path\]/u);
   assert.equal(controlJobApi(catalog, jobId, "cancel").payload.job.state, "cancelled");
+  const cancelledDataset = catalog.dataset(projected.payload.jobs[0].dataset_id);
+  assert.equal(cancelledDataset.state, "cancelled");
+  assert.match(cancelledDataset.completedAt, /^\d{4}-\d{2}-\d{2}T/u);
   assert.equal(controlJobApi(catalog, jobId, "retry").payload.job.state, "queued");
+  const retriedDataset = catalog.dataset(projected.payload.jobs[0].dataset_id);
+  assert.equal(retriedDataset.state, "collecting");
+  assert.equal(retriedDataset.completedAt, null);
   assert.throws(
     () => controlJobApi(catalog, jobId, "delete"),
     /must be cancel or retry/,

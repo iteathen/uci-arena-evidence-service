@@ -113,6 +113,7 @@ catalog:
   implementation: sqlite_single_writer
   schema: uci_arena_evidence_catalog_v1
   job_states: [queued, waiting_for_target, waiting_for_resources, running, completed, failed, cancelled]
+  dataset_states: [collecting, completed, cancelled]
   raw_storage: immutable_content_addressed_files
   observation_schema: uci_arena_observation_envelope_v1
   dataset_schema: uci_arena_evidence_dataset_v1
@@ -125,6 +126,7 @@ catalog:
     - "Every raw artifact is hashed before catalog insertion."
     - "Atomic rename publishes manifests, control state, status, and profile candidates."
     - "Interrupted and contaminated attempts remain visible but never become authoritative observations."
+    - "Cancelling a job atomically closes its one-to-one dataset as cancelled; retrying that job atomically reopens the dataset as collecting. Manager projects this provider-owned lifecycle and never infers it from job rows."
     - "Prune requires an explicit before timestamp and confirmation token and emits an audit record."
 
 observation_envelope:
@@ -278,7 +280,7 @@ manager_integration_api:
     - "Output inspect accepts only service-issued dataset UUID or profile SHA-256 identities."
     - "A supplied cursor may suppress an unchanged output list but never changes evidence or profile authority."
     - "The API never returns SQL rows, catalog paths, credential data, runtime secrets, or unvalidated artifact-store paths."
-    - "Manager retains installation and promotion authority and must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions."
+    - "Installer retains installation and suite-promotion authority; Manager must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions in its installed-suite projections and controls."
     - "Unknown API major versions and unknown operations fail closed."
 
 first_campaign:

@@ -1,0 +1,82 @@
+meta:
+  spec_id: evidence_service_suite_lego_boundaries_v1
+  version: 1
+  status: active
+  owner: governance
+  purpose: >
+    Make the canonical UCI Arena complete-suite architecture enforceable at
+    the Evidence Service repository boundary.
+
+authority:
+  canonical_document:
+    repository: iteathen/uci-arena-installer
+    path: docs/architecture/UCI_ARENA_COMPLETE_LEGO_ARCHITECTURE.md
+    url: https://github.com/iteathen/uci-arena-installer/blob/main/docs/architecture/UCI_ARENA_COMPLETE_LEGO_ARCHITECTURE.md
+  local_companion_specs:
+    - specs/00_READ_FIRST.yaml
+    - specs/repository_boundary_v1.yaml
+    - specs/uci_arena_evidence_service_v1.yaml
+  rule: >
+    Detailed Evidence Service specifications remain authoritative for provider
+    behavior when they do not violate the canonical suite ownership boundary.
+
+repository_role:
+  repository: iteathen/uci-arena-evidence-service
+  product_role: evidence_production_and_qualification_orchestrator
+  owns:
+    - evidence_scheduling_and_run_admission
+    - resource_isolation_and_preemption
+    - qualification_workflow_orchestration
+    - timing_profile_generation_workflows
+    - evidence_normalization_and_result_catalogs
+    - resumable_job_state
+    - dataset_and_profile_publication
+    - provider_startup_health_status_configuration_and_persistence
+    - evidence_artifact_component_manifests_and_provenance
+  must_not_own:
+    - chess_legality_or_terminal_truth
+    - engine_search_or_evaluation
+    - uci_game_controller_or_referee_implementation
+    - timing_qualifier_or_statistical_runtime_implementation
+    - manager_control_plane_behavior
+    - suite_installation_or_release_composition
+
+mandatory_boundaries:
+  - "Evidence Service invokes allowlisted runtime tools published by the engine through the exact uci_arena_evidence.runtime contract; it never imports or reconstructs engine internals."
+  - "Engine-owned runtime tools retain chess, UCI, referee, timing-qualification, and statistical truth; Evidence Service owns durable scheduling, admission, normalization, cataloging, and publication."
+  - "Evidence authority requires exact component, target, artifact, and resource-interval identity and fails closed on drift or contamination."
+  - "Manager consumes typed status, configuration, job controls, and output projections only through the published service contract and never opens provider-private catalogs or raw storage."
+  - "Installer owns suite composition, artifact validation, deployment, upgrade, repair, and rollback; Evidence Service publishes its immutable artifact and component manifest."
+  - "Repositories exchange versioned contracts and immutable release artifacts and never import one another's internal source trees."
+  - "Evidence Service remains independently buildable, testable, versioned, installable, upgradable, removable, and useful without Manager availability."
+  - "Separately installable evidence runtime tools remain engine-owned unless independent source ownership and release lifecycle later justify a repository split."
+
+published_contract:
+  required:
+    - component_manifest
+    - service_contract
+    - configuration_schema
+    - status_schema
+    - evidence_output_and_authority_schemas
+    - accepted_runtime_contract_and_capabilities
+    - version_and_compatibility
+    - entrypoint_and_startup_contract
+    - health_checks
+    - owned_preserved_generated_and_disposable_paths
+    - checksums_sbom_test_receipt_and_signed_provenance
+
+substitution_acceptance:
+  required:
+    - "A clean build succeeds without Engine, Manager, Book Forge, Lichess Bot, or Installer source checkouts."
+    - "A fake conforming evidence runtime proves scheduling, admission, normalization, resumability, and publication without engine source."
+    - "A conforming Manager consumes Evidence status, configuration validation, controls, and outputs only through the published service contract."
+    - "The Installer can add, remove, repair, or upgrade Evidence Service from its manifest without product-specific installer control flow."
+    - "Unknown contract major versions, component substitution, identity drift, path escape, contaminated intervals, and invalid artifacts fail closed."
+
+change_gate:
+  questions:
+    - "Is this evidence orchestration behavior or engine-owned runtime truth?"
+    - "Does the service consume an exact typed runtime contract rather than a source checkout or guessed path?"
+    - "Can the runtime tool be replaced by a conforming implementation without changing scheduling and catalog logic?"
+    - "Can Manager integrate the result without opening provider-private state?"
+    - "Does the change preserve identity, resource-authority, persistence, and immutable-publication guarantees?"

@@ -153,4 +153,4 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --prerelease \
             --title "evidence-service ${RELEASE_VERSION} ${RELEASE_TARGET}" \
-            --notes "Immutable private component candidate; UCI Arena Manager retains suite promotion authority."
+            --notes "Immutable private component candidate; uci-arena-installer retains suite composition and promotion authority."
