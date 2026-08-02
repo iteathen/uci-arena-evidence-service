@@ -345,6 +345,7 @@ relocatable_install:
     - "Configuration loading must preserve the selected runtime root instead of replacing it with the Evidence Service package root; repositoryRoot is a compatibility projection of that same selected runtime root, not a second authority."
     - "The component publishes a bounded installer-integration entrypoint that owns Evidence configuration and active-target document generation from declared dependency and timing-profile bindings."
     - "Installer supplies validated paths through the versioned installation context and does not interpret Evidence configuration fields, profile semantics, or active-target document contents."
+    - "The component manifest declares the Evidence startup CLI, exact action arrays, workspace/configuration flags, root response shape, and mandatory configuration-match plus live-daemon evidence; Installer does not contain an Evidence-specific health branch."
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
     - "Before constructing a queued adapter command, the service validates contracts/evidence-runtime-contract.json and every current-platform allowlisted entrypoint inside runtimeRoot."
     - "An absent runtime remains a healthy state while no job is runnable; an absent, malformed, mismatched, or escaping runtime contract fails the job before subprocess creation."

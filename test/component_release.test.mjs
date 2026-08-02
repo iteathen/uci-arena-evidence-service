@@ -59,6 +59,15 @@ test("provider release proves independent target-scoped native reproducibility",
     definition.installer_integration.dependency_bindings.map((binding) => binding.name),
     ["evidence_runtime_root", "engine", "model_root", "stockfish", "referee"],
   );
+  assert.equal(definition.installer_integration.startup_control.entrypoint, "cli");
+  assert.equal(
+    definition.installer_integration.startup_control.result.envelope,
+    "root",
+  );
+  assert.equal(
+    definition.installer_integration.startup_control.result.require_live_on_install,
+    true,
+  );
   assert.match(workflow, /build\/native-repro/u);
   assert.match(workflow, /provider_stage\/background_service_native_repro/u);
   assert.match(workflow, /native_toolchain_receipt\.mjs/u);
