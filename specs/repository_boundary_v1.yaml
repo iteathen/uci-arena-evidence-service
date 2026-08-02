@@ -56,6 +56,7 @@ validation:
   - repository_import_boundary
   - clean_npm_install
   - source_tests
+  - windows_native_helpers_built_before_source_tests_without_native_skips
   - absent_runtime_healthy_waiting_state
   - pinned_runtime_integration
   - deterministic_component_candidate
