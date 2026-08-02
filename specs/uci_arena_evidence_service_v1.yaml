@@ -347,3 +347,13 @@ relocatable_install:
     - "Startup registrations use packageRoot as WorkingDirectory."
     - "Engine, Stockfish, model, referee, and runner locations remain explicit typed configuration."
     - "Restaurant locations are detection-only and are never inferred from the installed component parent."
+
+provider_release_reproducibility_2026_08_01:
+  status: active
+  owner: evidence_service_provider_release
+  rules:
+    - "A Windows Evidence Service candidate builds the shared native helpers twice from independent empty build and staging roots; repacking one staged payload is not reproducibility evidence."
+    - "Both complete unsigned component archives and both provider-result predicates are byte-identical before signing or publication."
+    - "The exact native toolchain receipt binds component id, target, source commit, workflow identity, and primary plus reproduction build roles."
+    - "The Linux service artifact contains no native helper bytes and neither requires nor invents native toolchain evidence."
+    - "A mismatch blocks publication and reports both archive digests plus the first differing payload path."
