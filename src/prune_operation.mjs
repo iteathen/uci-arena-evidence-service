@@ -71,6 +71,7 @@ export class PruneOperation {
 
     let result;
     let operationError = null;
+    let timerCleanupError = null;
     let timer = null;
     try {
       heartbeat();
@@ -91,7 +92,7 @@ export class PruneOperation {
         try {
           this.clearIntervalImpl(timer);
         } catch (error) {
-          operationError ??= error;
+          timerCleanupError = error;
         }
       }
     }
@@ -102,7 +103,12 @@ export class PruneOperation {
     } catch (error) {
       releaseError = error;
     }
-    const errors = uniqueErrors([operationError, heartbeatError, releaseError]);
+    const errors = uniqueErrors([
+      operationError,
+      heartbeatError,
+      timerCleanupError,
+      releaseError,
+    ]);
     if (errors.length === 1) throw errors[0];
     if (errors.length > 1) {
       throw new AggregateError(
