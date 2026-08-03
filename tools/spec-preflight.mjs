@@ -21,6 +21,14 @@ if (changed.length === 0 || changed.some((name) =>
   specs.add("specs/path_admission_v1.yaml");
 }
 if (changed.length === 0 || changed.some((name) =>
+  name === "src/config.mjs"
+  || name === "src/daemon_timing.mjs"
+  || name === "test/daemon_timing.test.mjs"
+  || name === "specs/daemon_timing_v1.yaml"
+  || name === "tools/spec-preflight.mjs")) {
+  specs.add("specs/daemon_timing_v1.yaml");
+}
+if (changed.length === 0 || changed.some((name) =>
   name === "src/cli.mjs"
   || name === "src/cli_contract.mjs"
   || name === "test/cli_contract.test.mjs"
