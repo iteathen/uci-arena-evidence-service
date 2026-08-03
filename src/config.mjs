@@ -3,6 +3,10 @@ import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  canonicalDaemonTiming,
+  validateDaemonTiming,
+} from "./daemon_timing.mjs";
 
 const MAX_CONFIG_FILE_BYTES = 1024 * 1024;
 const MAX_CONFIGURED_PATH_CHARACTERS = 32_767;
@@ -93,11 +97,7 @@ const defaults = {
       ? ["msbuild.exe", "cl.exe"]
       : ["ninja", "cmake", "make", "cc1plus"],
   },
-  daemon: {
-    heartbeatMs: 15_000,
-    cycleMs: 60_000,
-    staleMs: 300_000,
-  },
+  daemon: canonicalDaemonTiming(),
 };
 
 function assertSafeConfigValue(root) {
@@ -330,6 +330,7 @@ function validate(config) {
     );
   }
   validateOwnerRoots(config.externalOwnerRoots);
+  validateDaemonTiming(config.daemon);
   const resources = config.resources;
   if (!resources || typeof resources !== "object" || Array.isArray(resources)) {
     throw new Error("resources must be an object");
