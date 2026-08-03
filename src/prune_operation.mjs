@@ -42,8 +42,22 @@ export class PruneOperation {
     if (!lease
         || typeof lease.heartbeat !== "function"
         || typeof lease.release !== "function") {
-      throw new Error("Evidence prune lease factory returned an invalid lease");
+      let cleanupError = null;
+      try {
+        lease?.release?.();
+      } catch (error) {
+        cleanupError = error;
+      }
+      const contractError = new Error("Evidence prune lease factory returned an invalid lease");
+      if (cleanupError) {
+        throw new AggregateError(
+          [contractError, cleanupError],
+          "Evidence prune lease contract and cleanup both failed",
+        );
+      }
+      throw contractError;
     }
+
     let heartbeatError = null;
     const heartbeat = () => {
       if (heartbeatError) throw heartbeatError;
@@ -54,25 +68,32 @@ export class PruneOperation {
         throw error;
       }
     };
-    heartbeat();
-    const timer = this.setIntervalImpl(() => {
-      try {
-        lease.heartbeat();
-      } catch (error) {
-        heartbeatError ??= error;
-      }
-    }, this.heartbeatIntervalMs);
-    timer?.unref?.();
 
     let result;
     let operationError = null;
+    let timer = null;
     try {
+      heartbeat();
+      timer = this.setIntervalImpl(() => {
+        try {
+          lease.heartbeat();
+        } catch (error) {
+          heartbeatError ??= error;
+        }
+      }, this.heartbeatIntervalMs);
+      timer?.unref?.();
       result = await this.workflow.run({ ...input, heartbeat });
       heartbeat();
     } catch (error) {
       operationError = error;
     } finally {
-      this.clearIntervalImpl(timer);
+      if (timer !== null) {
+        try {
+          this.clearIntervalImpl(timer);
+        } catch (error) {
+          operationError ??= error;
+        }
+      }
     }
 
     let releaseError = null;
