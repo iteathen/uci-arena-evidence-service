@@ -1,0 +1,124 @@
+meta:
+  spec_id: evidence_dataset_export_contract_v1
+  version: 1
+  status: active
+  owner: evidence_dataset_persistence_and_export
+  purpose: >
+    Export durable Evidence datasets without memory proportional to total
+    observation count while preserving one consistent catalog snapshot and
+    atomic output publication.
+
+authority:
+  implementation:
+    read_adapter: src/dataset_read_store.mjs
+    export_workflow: src/dataset_export.mjs
+    composition_root: src/cli.mjs
+  broader_contracts:
+    - specs/uci_arena_evidence_service_v1.yaml
+    - specs/repository_boundary_v1.yaml
+  rule: >
+    The read adapter is part of the catalog persistence brick. It may know the
+    SQLite schema internally but publishes only project-owned dataset summary
+    and observation-envelope values. The export workflow depends only on that
+    typed read port.
+
+ownership:
+  read_adapter_owns:
+    - read_only_catalog_connection
+    - exact_dataset_summary_query
+    - ordered_observation_iteration
+    - stored_json_validation
+    - one_consistent_sqlite_read_snapshot
+    - database_connection_lifecycle
+  export_workflow_owns:
+    - json_and_jsonl_serialization
+    - bounded_per_observation_buffering
+    - adjacent_temporary_file
+    - full_write_handling
+    - file_sync_close_and_atomic_rename
+    - temporary_file_cleanup
+    - written_count_reconciliation
+  must_not_own:
+    - dataset_creation_or_completion
+    - observation_admission_or_authority
+    - catalog_schema_migration
+    - prune_or_retention_policy
+    - manager_output_projection
+    - arbitrary_sql_or_catalog_access_from_cli
+
+read_contract:
+  dataset_summary_fields:
+    - id
+    - schema
+    - campaign
+    - state
+    - targetIdentity
+    - authority
+    - observationCount
+    - createdAt
+    - completedAt
+  observation_order: [recorded_at, id]
+  observation_schema: uci_arena_observation_envelope_v1
+  consistency:
+    - Summary and every yielded observation come from one explicit SQLite read
+      transaction.
+    - External WAL writers may continue, but their later commits are not mixed
+      into the active export snapshot.
+    - The iterator is consumed only inside the snapshot callback and may not
+      escape after commit or rollback.
+    - Missing datasets return no export and create no output file.
+    - Malformed stored JSON fails visibly instead of becoming an empty object.
+
+formats:
+  jsonl:
+    compatibility: one_compact_observation_envelope_per_line
+    includes_dataset_summary: false
+  json:
+    compatibility: dataset_summary_object_plus_observations_array
+    formatting: stable_two_space_document_with_each_observation_serialized_individually
+  rules:
+    - Output ordering remains the canonical recorded_at,id order.
+    - Serialization memory is bounded by summary size plus one observation.
+    - The written observation count must equal the snapshot summary count before
+      the temporary file can become authoritative.
+
+publication:
+  destination: explicit_operator_path
+  temporary_file: adjacent_unique_exclusive_create
+  permissions: operator_private_default
+  sequence:
+    - create_parent_directory
+    - open_adjacent_temporary_file_exclusively
+    - serialize_snapshot_incrementally
+    - reconcile_observation_count
+    - fsync_temporary_file
+    - close_temporary_file
+    - atomically_rename_to_destination
+  failure:
+    - Close any open handle.
+    - Remove only the exporter-owned temporary file.
+    - Leave a prior destination untouched.
+    - Return a visible failure; never report a partial file as successful.
+
+performance:
+  memory_complexity: O(dataset_summary_plus_one_observation)
+  catalog_access: O(one_summary_query_plus_streamed_observations)
+  forbidden:
+    - loading_all_dataset_summaries_to_find_one_id
+    - sqlite_all_for_dataset_observations
+    - array_materialization_of_export_rows
+    - joining_the_complete_jsonl_body_in_memory
+    - stringify_of_the_complete_json_dataset
+
+acceptance:
+  required:
+    - jsonl_semantic_compatibility
+    - json_semantic_compatibility
+    - iterator_only_substitution_test
+    - exact_observation_order
+    - count_mismatch_failure_and_cleanup
+    - rename_failure_cleanup
+    - replacement_of_prior_destination_only_after_complete_sync
+    - missing_dataset_no_output
+    - malformed_stored_json_failure
+    - no_use_of_materializing_catalog_dataset_method
