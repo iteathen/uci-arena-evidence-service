@@ -1,0 +1,201 @@
+meta:
+  spec_id: evidence_prune_contract_v1
+  version: 1
+  status: active
+  owner: evidence_retention_and_prune
+  purpose: >
+    Remove explicitly selected retained raw artifacts without allowing a
+    database rollback, process crash, corrupt catalog path, symlink escape, or
+    failed audit write to leave authoritative catalog rows pointing at missing
+    files.
+
+authority:
+  implementation:
+    store_adapter: src/prune_store.mjs
+    workflow: src/prune_service.mjs
+    composition_root: src/cli.mjs
+    production_authority_guard: tools/check-prune-authority.mjs
+  broader_contracts:
+    - specs/uci_arena_evidence_service_v1.yaml
+    - specs/repository_boundary_v1.yaml
+  legacy_method:
+    path: src/catalog.mjs
+    member: Catalog.prune
+    status: non_production_legacy_pending_deletion
+  rule: >
+    The typed PruneStore is the only production SQLite prune port and the
+    PruneService is the only production filesystem-retention workflow. The CLI
+    and other components may not call Catalog.prune or issue prune SQL directly.
+
+ownership:
+  store_adapter_owns:
+    - read_write_catalog_connection
+    - candidate_count_and_byte_aggregation
+    - ordered_candidate_iteration
+    - exact_artifact_lookup
+    - exclusive_prune_transaction
+    - observation_and_artifact_row_deletion
+    - dataset_count_reconciliation
+    - audit_row_insertion_and_result_update
+    - database_connection_lifecycle
+  workflow_owns:
+    - strict_cutoff_normalization
+    - explicit_confirmation_token
+    - artifact_root_physical_containment
+    - regular_file_and_symlink_rejection
+    - file_size_and_sha256_verification
+    - operation_quarantine_directory
+    - atomic_artifact_staging
+    - rollback_restoration
+    - committed_quarantine_cleanup
+    - interrupted_operation_recovery
+    - public_prune_result
+  must_not_own:
+    - dataset_or_observation_creation
+    - artifact_registration
+    - catalog_schema_migration
+    - general_workspace_cleanup
+    - installer_uninstall_data_policy
+    - arbitrary_path_deletion
+
+input:
+  before:
+    type: canonical_utc_timestamp
+    accepted_forms:
+      - YYYY-MM-DDTHH:mm:ssZ
+      - YYYY-MM-DDTHH:mm:ss.sssZ
+    normalized_form: YYYY-MM-DDTHH:mm:ss.sssZ
+    rule: >
+      The complete token must represent the same UTC calendar instant when
+      normalized; permissive Date.parse inputs and normalized invalid dates are
+      rejected.
+  confirm:
+    dry_run: empty
+    destructive: PRUNE
+    all_other_values: dry_run
+
+candidate_contract:
+  query:
+    - artifact created_at is earlier than the normalized cutoff
+    - artifact is not referenced by an observation in a collecting dataset
+  order: [created_at, sha256]
+  dry_run:
+    - Uses SQL aggregate count and byte sum.
+    - Does not enumerate, hash, move, or delete files.
+  destructive:
+    - Holds one exclusive SQLite write transaction while candidate membership,
+      filesystem staging, catalog deletion, count reconciliation, and audit-row
+      insertion are performed.
+    - Iterates candidates lazily rather than materializing the candidate set.
+
+artifact_validation:
+  required:
+    - sha256_is_64_lowercase_hex_after_normalization
+    - size_bytes_is_nonnegative_safe_integer
+    - stored_path_is_absolute
+    - lexical_and_physical_path_remain_inside_configured_artifact_root
+    - path_is_not_inside_the_prune_quarantine_subtree
+    - lstat_is_regular_file_and_not_symbolic_link
+    - current_file_size_matches_catalog_size
+    - current_sha256_matches_catalog_identity
+  failure:
+    - Abort the operation before deleting that artifact's catalog rows.
+    - Roll back the database transaction.
+    - Restore every artifact already staged in the operation.
+    - Preserve any unrestored file in its owned quarantine for automatic
+      recovery and report the failure visibly.
+
+quarantine:
+  root: artifacts/.prune-quarantine
+  operation_directory: UUID
+  staged_filename: <sha256>.artifact
+  rules:
+    - Candidate and quarantine paths must be on the same filesystem so rename is
+      atomic.
+    - A staged file is never considered deleted until its catalog rows and audit
+      row commit.
+    - On rollback, staged files are renamed back to the exact validated catalog
+      paths before the operation returns.
+    - On commit, staged files are deleted from quarantine.
+    - A post-commit cleanup failure is recorded conservatively as
+      cleanupPending=true; catalog evidence remains truthful because rows are
+      already absent and the file remains only in owned disposable quarantine.
+
+recovery:
+  trigger:
+    - before_every_prune_dry_run_or_destructive_run
+  rules:
+    - Scan only direct UUID-named operation directories under the owned
+      quarantine root.
+    - Accept only `<sha256>.artifact` files.
+    - When the artifact row still exists, validate its catalog destination and
+      restore the quarantined file if the destination is absent.
+    - When the artifact row no longer exists, delete the quarantined file as a
+      committed cleanup remainder.
+    - If both quarantine and catalog destination exist, fail closed instead of
+      overwriting either file.
+    - Remove an operation directory only after all owned files are resolved.
+    - Unknown entries, unsafe paths, or ambiguous state fail visibly and remain
+      untouched.
+
+database_transaction:
+  sequence:
+    - begin_immediate
+    - lazily_select_candidates
+    - validate_and_stage_each_candidate
+    - delete_observations_by_artifact_identity
+    - delete_exact_artifact_row_and_require_one_change
+    - recompute_dataset_observation_counts
+    - insert_prune_audit_row_with_cleanup_pending_true
+    - commit
+  rollback:
+    - rollback_database
+    - restore_staged_files_in_reverse_order
+  audit:
+    - The confirmed audit row is inserted in the same transaction as catalog
+      deletion and count reconciliation.
+    - Dry-run audit insertion is one ordinary single-statement write.
+    - After successful physical quarantine cleanup, update the existing audit
+      result to cleanupPending=false.
+    - If the final update fails, the conservative pending state remains.
+
+result_schema:
+  schema: uci_arena_evidence_prune_result_v2
+  fields:
+    - operationId
+    - auditId
+    - before
+    - confirmed
+    - artifactCount
+    - bytes
+    - staged
+    - deleted
+    - cleanupPending
+    - quarantine
+    - recovered
+  compatibility:
+    - Existing `before`, `confirmed`, `artifactCount`, `bytes`, and `deleted`
+      fields remain present.
+
+production_guard:
+  rules:
+    - No file under src/ except src/prune_service.mjs may call `.prune(`.
+    - No file under src/ except src/prune_store.mjs may mention prune SQL tables
+      or execute artifact/observation deletion for prune.
+    - The legacy Catalog.prune definition may remain temporarily but cannot be a
+      production caller target.
+
+acceptance:
+  required:
+    - canonical_and_noncanonical_cutoff_tests
+    - aggregate_dry_run_without_file_enumeration
+    - successful_validated_prune_and_same_transaction_audit
+    - external_path_symlink_and_quarantine_escape_rejection
+    - size_and_digest_mismatch_rejection
+    - injected_database_failure_restores_staged_files
+    - injected_restore_failure_leaves_recoverable_quarantine
+    - process_interruption_recovery_for_rolled_back_and_committed_states
+    - post_commit_cleanup_failure_is_audited_pending
+    - second_run_clears_pending_quarantine
+    - prior_catalog_rows_never_reference_a_missing_nonquarantined_file
+    - production_authority_guard
