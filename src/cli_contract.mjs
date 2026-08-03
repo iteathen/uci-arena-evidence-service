@@ -18,6 +18,7 @@ const JOB_STATES = new Set([
 ]);
 
 const COMMANDS = new Map([
+  ["help", { flags: [] }],
   ["init", { flags: [] }],
   ["daemon", { flags: ["once"] }],
   ["status", { flags: ["json"] }],
@@ -143,6 +144,13 @@ function validateDefinition(command, flags) {
   }
 }
 
+function noCommandFlagsForHelp(flags) {
+  const names = Object.keys(flags);
+  if (names.length !== 0) {
+    throw new Error(`help does not accept --${names[0]}`);
+  }
+}
+
 export function parseCliArguments(argv) {
   if (!Array.isArray(argv)) throw new Error("CLI arguments must be an array");
   if (argv.length > MAX_ARGUMENT_COUNT) {
@@ -188,17 +196,20 @@ export function parseCliArguments(argv) {
   }
 
   if (positional.length === 0) {
-    if (globals.help) return { help: true, command: null, globals, flags };
+    if (globals.help) {
+      noCommandFlagsForHelp(flags);
+      return { help: true, command: null, globals, flags };
+    }
     throw new Error("a command is required");
   }
   const command = positional.join(" ");
   if (!COMMANDS.has(command)) {
-    if (globals.help) return { help: true, command: null, globals, flags };
+    if (globals.help) noCommandFlagsForHelp(flags);
     throw new Error(`unknown command: ${command}`);
   }
   validateDefinition(command, flags);
   return {
-    help: Boolean(globals.help),
+    help: command === "help" || Boolean(globals.help),
     command,
     globals,
     flags,
