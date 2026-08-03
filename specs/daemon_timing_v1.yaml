@@ -4,8 +4,8 @@ meta:
   status: active
   owner: daemon_lifecycle
   purpose: >
-    Keep daemon scheduling and heartbeat liveness bounded under one internal
-    authority instead of accepting arbitrary operator timer values.
+    Keep daemon scheduling intervals bounded under one internal authority
+    instead of accepting arbitrary operator timer values.
 
 authority:
   parent_specs:
@@ -18,13 +18,13 @@ ownership:
   owns:
     - canonical heartbeat interval
     - canonical cycle interval
-    - canonical stale-heartbeat threshold
+    - canonical stale-heartbeat threshold value
     - compatibility configuration validation
-    - heartbeat-age and stale-state projection
   rules:
-    - Daemon code consumes timing constants from this component.
     - Configuration loading validates but does not redefine daemon timing.
-    - Catalog status consumes the pure heartbeat projection and does not invent another threshold.
+    - Existing daemon code may consume the validated compatibility projection.
+    - A future timing change requires a reviewed contract version.
+    - Heartbeat-stale status projection is not claimed by this change and remains a separate audit item.
 
 canonical_timing:
   heartbeat_ms: 15000
@@ -32,7 +32,7 @@ canonical_timing:
   stale_ms: 300000
   rules:
     - The heartbeat and stale values preserve the primary service contract.
-    - The cycle interval remains the existing one-minute daemon scheduling cadence.
+    - The cycle interval preserves the existing one-minute daemon scheduling cadence.
     - All values are safe integers and are not operator-tunable in version 1.
 
 configuration_compatibility:
@@ -45,25 +45,11 @@ configuration_compatibility:
     - Unknown keys, missing keys, non-integers, and changed values fail configuration loading.
     - Future timer configurability requires a new reviewed contract version rather than accidental numeric acceptance.
 
-status_projection:
-  fields:
-    - heartbeatState
-    - heartbeatAgeMs
-  states: [missing, fresh, stale]
-  rules:
-    - Invalid or absent heartbeat timestamps project missing with null age.
-    - A future timestamp projects age zero and fresh; clock rollback does not create a negative age.
-    - Age below 300000 milliseconds is fresh.
-    - Age at or above 300000 milliseconds is stale.
-    - This is a heartbeat observation only and does not replace exact process-owner verification.
-
 validation:
   required:
     - canonical_timing_accepted
     - altered_timing_rejected
     - unknown_timing_key_rejected
     - noninteger_timing_rejected
-    - heartbeat_boundary_299999_fresh_300000_stale
-    - missing_and_invalid_heartbeat_project_missing
-    - future_heartbeat_projects_zero_age
-    - daemon_and_catalog_consume_single_timing_component
+    - configuration_loader_uses_canonical_defaults
+    - configuration_loader_rejects_timer_override
