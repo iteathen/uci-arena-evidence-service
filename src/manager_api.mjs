@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
-import { listQualifiedProfiles } from "./profiles.mjs";
 import { enqueueFirstCampaign } from "./campaign.mjs";
+import { projectDaemonHeartbeatStatus } from "./daemon_liveness.mjs";
 import { sha256File } from "./identity.mjs";
+import { listQualifiedProfiles } from "./profiles.mjs";
 
 const API_SCHEMA = "uci_arena_manager_service_api_v1";
 const API_VERSION = "1.0";
@@ -172,7 +173,9 @@ export function describeApi() {
 }
 
 export function statusApi(catalog) {
-  return envelope("status", { status: catalog.status() });
+  return envelope("status", {
+    status: projectDaemonHeartbeatStatus(catalog.status()),
+  });
 }
 
 export function listOutputsApi(catalog, config, cursor = "") {
