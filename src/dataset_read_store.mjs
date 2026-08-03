@@ -11,6 +11,10 @@ function parseStoredJson(text, label) {
 
 function datasetSummary(row) {
   if (!row) return null;
+  const observationCount = Number(row.observation_count);
+  if (!Number.isSafeInteger(observationCount) || observationCount < 0) {
+    throw new Error(`Evidence catalog dataset ${row.id} has an invalid observation count`);
+  }
   return {
     id: row.id,
     schema: row.schema,
@@ -21,7 +25,7 @@ function datasetSummary(row) {
       `dataset ${row.id} target identity`,
     ),
     authority: parseStoredJson(row.authority_json, `dataset ${row.id} authority`),
-    observationCount: Number(row.observation_count),
+    observationCount,
     createdAt: row.created_at,
     completedAt: row.completed_at,
   };
