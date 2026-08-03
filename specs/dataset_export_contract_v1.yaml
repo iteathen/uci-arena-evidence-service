@@ -28,6 +28,7 @@ ownership:
     - exact_dataset_summary_query
     - ordered_observation_iteration
     - stored_json_validation
+    - stored_count_validation
     - one_consistent_sqlite_read_snapshot
     - database_connection_lifecycle
   export_workflow_owns:
@@ -38,6 +39,7 @@ ownership:
     - file_sync_close_and_atomic_rename
     - temporary_file_cleanup
     - written_count_reconciliation
+    - protected_catalog_destination_rejection
   must_not_own:
     - dataset_creation_or_completion
     - observation_admission_or_authority
@@ -66,6 +68,7 @@ read_contract:
       into the active export snapshot.
     - The iterator is consumed only inside the snapshot callback and may not
       escape after commit or rollback.
+    - The stored observation count is a non-negative safe integer.
     - Missing datasets return no export and create no output file.
     - Malformed stored JSON fails visibly instead of becoming an empty object.
 
@@ -84,15 +87,22 @@ formats:
 
 publication:
   destination: explicit_operator_path
+  protected_destinations:
+    - catalog_database
+    - catalog_wal_sidecar
+    - catalog_shm_sidecar
+    - catalog_rollback_journal
   temporary_file: adjacent_unique_exclusive_create
   permissions: operator_private_default
   sequence:
+    - validate_destination_is_not_catalog_storage
     - create_parent_directory
     - open_adjacent_temporary_file_exclusively
     - serialize_snapshot_incrementally
     - reconcile_observation_count
     - fsync_temporary_file
     - close_temporary_file
+    - commit_read_snapshot
     - atomically_rename_to_destination
   failure:
     - Close any open handle.
@@ -119,6 +129,7 @@ acceptance:
     - count_mismatch_failure_and_cleanup
     - rename_failure_cleanup
     - replacement_of_prior_destination_only_after_complete_sync
+    - protected_catalog_destination_rejection
     - missing_dataset_no_output
     - malformed_stored_json_failure
     - no_use_of_materializing_catalog_dataset_method
