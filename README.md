@@ -73,10 +73,10 @@ commands and never opens the service catalog directly.
 ## Background resource behavior
 
 The daemon runs one engine shard at a time. It waits for sustained host and GPU
-idle evidence, available memory and disk, AC power, no Restaurant owner, and no
-foreground Arena request. It shares one fair heavy-background lease with Book
-Forge. Book Forge's lightweight acquisition and integration publication remain
-independent.
+idle evidence, available memory and disk, AC power, no configured external
+foreground compute owner, and no foreground Arena request. It shares one fair
+heavy-background lease with Book Forge. Book Forge's lightweight acquisition
+and integration publication remain independent.
 
 Direct Arena runners request foreground priority. A background child is
 terminated within two seconds and requeued when foreground work appears.
