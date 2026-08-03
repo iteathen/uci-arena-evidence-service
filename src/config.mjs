@@ -1,8 +1,16 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { constants, existsSync, lstatSync } from "node:fs";
+import { open } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const MAX_CONFIG_FILE_BYTES = 1024 * 1024;
+const MAX_CONFIGURED_PATH_CHARACTERS = 32_767;
+const MAX_CONFIG_ERROR_CHARACTERS = 512;
+const MAX_CONFIG_DISPLAY_PATH_CHARACTERS = 320;
+const MAX_CONFIG_NESTING_DEPTH = 64;
+const MAX_CONFIG_VISITED_VALUES = 10_000;
+const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const defaultRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim()
@@ -10,6 +18,20 @@ export const defaultRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.t
   : packageRoot;
 export const runtimeRoot = defaultRuntimeRoot;
 export const repositoryRoot = runtimeRoot;
+
+function boundedText(value, maximum = MAX_CONFIG_ERROR_CHARACTERS) {
+  const text = String(value ?? "");
+  if (text.length <= maximum) return text;
+  return `${text.slice(0, Math.max(0, maximum - 3))}...`;
+}
+
+function boundedMessage(error) {
+  return boundedText(error?.message ?? error ?? "unknown error");
+}
+
+function displayedPath(value) {
+  return boundedText(value, MAX_CONFIG_DISPLAY_PATH_CHARACTERS);
+}
 
 function defaultWorkspace() {
   if (process.platform === "win32") return "E:/uci-arena-evidence";
@@ -78,9 +100,48 @@ const defaults = {
   },
 };
 
+function assertSafeConfigValue(root) {
+  const pending = [{ value: root, depth: 0 }];
+  let visited = 0;
+  while (pending.length > 0) {
+    const { value, depth } = pending.pop();
+    visited += 1;
+    if (visited > MAX_CONFIG_VISITED_VALUES) {
+      throw new Error(`configuration exceeds ${MAX_CONFIG_VISITED_VALUES} values`);
+    }
+    if (depth > MAX_CONFIG_NESTING_DEPTH) {
+      throw new Error(`configuration exceeds nesting depth ${MAX_CONFIG_NESTING_DEPTH}`);
+    }
+    if (Array.isArray(value)) {
+      for (const nested of value) pending.push({ value: nested, depth: depth + 1 });
+      continue;
+    }
+    if (value === null || typeof value !== "object") continue;
+    if (Object.getPrototypeOf(value) !== Object.prototype) {
+      throw new Error("configuration must contain plain JSON objects");
+    }
+    for (const [key, nested] of Object.entries(value)) {
+      if (FORBIDDEN_OBJECT_KEYS.has(key)) {
+        throw new Error(`configuration contains forbidden object key ${boundedText(key, 64)}`);
+      }
+      pending.push({ value: nested, depth: depth + 1 });
+    }
+  }
+}
+
+function assertConfigDocument(value) {
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    throw new Error("configuration file must contain one JSON object");
+  }
+  assertSafeConfigValue(value);
+}
+
 function merge(base, override) {
   const result = { ...base };
   for (const [key, value] of Object.entries(override ?? {})) {
+    if (FORBIDDEN_OBJECT_KEYS.has(key)) {
+      throw new Error(`configuration contains forbidden object key ${boundedText(key, 64)}`);
+    }
     if (value && typeof value === "object" && !Array.isArray(value)
         && base[key] && typeof base[key] === "object" && !Array.isArray(base[key])) {
       result[key] = merge(base[key], value);
@@ -91,16 +152,123 @@ function merge(base, override) {
   return result;
 }
 
+function requirePathString(value, label, allowEmpty = false) {
+  if (typeof value !== "string" || (!allowEmpty && !value.trim())) {
+    throw new Error(`${label} must be ${allowEmpty ? "a string" : "a non-empty path string"}`);
+  }
+  if (value.length > MAX_CONFIGURED_PATH_CHARACTERS) {
+    throw new Error(`${label} exceeds ${MAX_CONFIGURED_PATH_CHARACTERS} characters`);
+  }
+  return value;
+}
+
 function configuredPath(value, directory) {
   if (!value) return value;
   return path.isAbsolute(value) ? path.normalize(value) : path.resolve(directory, value);
 }
 
+function pathStillNamesOpenedFile(filename, openedStatus) {
+  try {
+    const current = lstatSync(filename);
+    return !current.isSymbolicLink()
+      && current.isFile()
+      && current.dev === openedStatus.dev
+      && current.ino === openedStatus.ino;
+  } catch {
+    return false;
+  }
+}
+
+async function readConfigText(configFile) {
+  const filename = path.resolve(requirePathString(configFile, "configFile"));
+  let initialStatus;
+  try {
+    initialStatus = lstatSync(filename);
+  } catch (error) {
+    throw new Error(boundedText(`configuration file cannot be inspected: ${boundedMessage(error)}`));
+  }
+  if (initialStatus.isSymbolicLink() || !initialStatus.isFile()) {
+    throw new Error("configuration file must be an exact regular non-symlink file");
+  }
+  if (!Number.isSafeInteger(initialStatus.size)
+      || initialStatus.size < 0
+      || initialStatus.size > MAX_CONFIG_FILE_BYTES) {
+    throw new Error(`configuration file exceeds ${MAX_CONFIG_FILE_BYTES} bytes`);
+  }
+
+  let handle;
+  let text = null;
+  let failure = "";
+  try {
+    const noFollow = process.platform === "linux" && Number.isInteger(constants.O_NOFOLLOW)
+      ? constants.O_NOFOLLOW
+      : 0;
+    handle = await open(filename, constants.O_RDONLY | noFollow);
+    const openedStatus = await handle.stat();
+    if (!openedStatus.isFile()) {
+      failure = "configuration file changed to a non-file during admission";
+    } else if (!Number.isSafeInteger(openedStatus.size)
+        || openedStatus.size < 0
+        || openedStatus.size > MAX_CONFIG_FILE_BYTES) {
+      failure = `configuration file exceeds ${MAX_CONFIG_FILE_BYTES} bytes`;
+    } else if (openedStatus.dev !== initialStatus.dev
+        || openedStatus.ino !== initialStatus.ino
+        || !pathStillNamesOpenedFile(filename, openedStatus)) {
+      failure = "configuration file changed identity during admission";
+    } else {
+      const buffer = Buffer.alloc(openedStatus.size + 1);
+      let total = 0;
+      while (total < buffer.length) {
+        const { bytesRead } = await handle.read(
+          buffer,
+          total,
+          buffer.length - total,
+          total,
+        );
+        if (bytesRead === 0) break;
+        total += bytesRead;
+      }
+      if (total !== openedStatus.size) {
+        failure = "configuration file changed size during admission";
+      } else if (!pathStillNamesOpenedFile(filename, openedStatus)) {
+        failure = "configuration file path changed during admission";
+      } else {
+        const finalStatus = await handle.stat();
+        if (finalStatus.size !== openedStatus.size
+            || finalStatus.mtimeMs !== openedStatus.mtimeMs
+            || finalStatus.ctimeMs !== openedStatus.ctimeMs) {
+          failure = "configuration file changed during admission";
+        } else {
+          text = buffer.subarray(0, total).toString("utf8");
+        }
+      }
+    }
+  } catch (error) {
+    failure = boundedText(`configuration file is unreadable: ${boundedMessage(error)}`);
+  } finally {
+    if (handle) {
+      try {
+        await handle.close();
+      } catch (error) {
+        if (!failure) {
+          failure = boundedText(`configuration file cannot be closed: ${boundedMessage(error)}`);
+        }
+      }
+    }
+  }
+  if (failure) throw new Error(failure);
+  return { filename, text };
+}
+
 function validateOwnerRoots(value) {
   if (!Array.isArray(value)
       || value.length > 64
-      || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
-    throw new Error("externalOwnerRoots must contain at most 64 non-empty directory paths");
+      || value.some((entry) => typeof entry !== "string"
+        || !entry.trim()
+        || entry.length > MAX_CONFIGURED_PATH_CHARACTERS)) {
+    throw new Error(
+      "externalOwnerRoots must contain at most 64 non-empty paths of at most 32767 characters",
+    );
   }
   return value;
 }
@@ -112,6 +280,33 @@ function configuredExternalOwnerRoots(loaded, fallback) {
     throw new Error("configure only externalOwnerRoots; the legacy owner-root key cannot be combined with it");
   }
   return validateOwnerRoots(canonical ?? legacy ?? fallback);
+}
+
+function admittedExternalOwnerRoots(values, directory) {
+  const roots = [];
+  const seen = new Set();
+  for (const value of values) {
+    const candidate = configuredPath(value, directory);
+    if (seen.has(candidate)) continue;
+
+    let status;
+    try {
+      status = lstatSync(candidate);
+    } catch (error) {
+      if (error?.code === "ENOENT") continue;
+      throw new Error(boundedText(
+        `cannot inspect external owner root ${displayedPath(candidate)}: ${error?.message ?? error}`,
+      ));
+    }
+    if (status.isSymbolicLink() || !status.isDirectory()) {
+      throw new Error(boundedText(
+        `external owner root must be an exact regular non-symlink directory: ${displayedPath(candidate)}`,
+      ));
+    }
+    seen.add(candidate);
+    roots.push(candidate);
+  }
+  return roots;
 }
 
 export function assertSupportedNode() {
@@ -126,12 +321,19 @@ function validate(config) {
   if (!Array.isArray(config.profileImports)
       || config.profileImports.length > 64
       || config.profileImports.some(
-        (entry) => typeof entry !== "string" || !entry.trim(),
+        (entry) => typeof entry !== "string"
+          || !entry.trim()
+          || entry.length > MAX_CONFIGURED_PATH_CHARACTERS,
       )) {
-    throw new Error("profileImports must contain at most 64 non-empty file paths");
+    throw new Error(
+      "profileImports must contain at most 64 non-empty paths of at most 32767 characters",
+    );
   }
   validateOwnerRoots(config.externalOwnerRoots);
   const resources = config.resources;
+  if (!resources || typeof resources !== "object" || Array.isArray(resources)) {
+    throw new Error("resources must be an object");
+  }
   const numbers = [
     ["minimumFreeWorkspaceGb", resources.minimumFreeWorkspaceGb, 1, 100_000],
     ["pauseAvailableMemoryGb", resources.pauseAvailableMemoryGb, 1, 10_000],
@@ -149,7 +351,8 @@ function validate(config) {
     }
   }
   if (!Array.isArray(resources.priorityProcessNames)
-      || resources.priorityProcessNames.some((name) => !/^[A-Za-z0-9_.-]+$/i.test(name))) {
+      || resources.priorityProcessNames.some((name) =>
+        typeof name !== "string" || !/^[A-Za-z0-9_.-]+$/i.test(name))) {
     throw new Error("resources.priorityProcessNames must contain executable basenames");
   }
 }
@@ -158,23 +361,32 @@ export async function loadConfig({ configFile, workspace } = {}) {
   assertSupportedNode();
   let loaded = {};
   let directory = packageRoot;
+  let configFilename = null;
   if (configFile) {
-    const filename = path.resolve(configFile);
-    loaded = JSON.parse(await readFile(filename, "utf8"));
-    directory = path.dirname(filename);
+    const admitted = await readConfigText(configFile);
+    configFilename = admitted.filename;
+    try {
+      loaded = JSON.parse(admitted.text);
+    } catch (error) {
+      throw new Error(boundedText(`configuration file contains invalid JSON: ${boundedMessage(error)}`));
+    }
+    assertConfigDocument(loaded);
+    directory = path.dirname(configFilename);
   }
   const ownerRoots = configuredExternalOwnerRoots(loaded, defaults.externalOwnerRoots);
   const config = merge(structuredClone(defaults), loaded);
   delete config.restaurantRoots;
-  config.configFile = configFile ? path.resolve(configFile) : null;
+  validate(config);
+  config.configFile = configFilename;
   const environmentRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim();
-  config.runtimeRoot = environmentRuntimeRoot
-    ? path.resolve(environmentRuntimeRoot)
-    : configuredPath(config.runtimeRoot, directory);
-  config.repositoryRoot = config.runtimeRoot;
-  config.workspace = path.resolve(
-    workspace ?? process.env.UCI_ARENA_EVIDENCE_ROOT ?? config.workspace,
+  const selectedRuntimeRoot = environmentRuntimeRoot || config.runtimeRoot;
+  config.runtimeRoot = configuredPath(
+    requirePathString(selectedRuntimeRoot, "runtimeRoot"),
+    directory,
   );
+  config.repositoryRoot = config.runtimeRoot;
+  const selectedWorkspace = workspace ?? process.env.UCI_ARENA_EVIDENCE_ROOT ?? config.workspace;
+  config.workspace = path.resolve(requirePathString(selectedWorkspace, "workspace"));
   for (const key of [
     "activeModelPointer",
     "runtimeModelsRoot",
@@ -183,13 +395,14 @@ export async function loadConfig({ configFile, workspace } = {}) {
     "referee",
     "nativeHelper",
     "nativeLauncher",
-    "gpuIsolationAttestation",
   ]) {
-    config[key] = configuredPath(config[key], directory);
+    config[key] = configuredPath(requirePathString(config[key], key), directory);
   }
-  config.externalOwnerRoots = [...new Set(ownerRoots
-    .map((root) => configuredPath(root, directory))
-    .filter((root) => existsSync(root)))];
+  config.gpuIsolationAttestation = configuredPath(
+    requirePathString(config.gpuIsolationAttestation, "gpuIsolationAttestation", true),
+    directory,
+  );
+  config.externalOwnerRoots = admittedExternalOwnerRoots(ownerRoots, directory);
   Object.defineProperty(config, "restaurantRoots", {
     configurable: false,
     enumerable: false,
@@ -212,6 +425,5 @@ export async function loadConfig({ configFile, workspace } = {}) {
     && existsSync(config.nativeHelper);
   config.nativeLauncherAvailable = process.platform === "win32"
     && existsSync(config.nativeLauncher);
-  validate(config);
   return config;
 }

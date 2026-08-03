@@ -11,6 +11,16 @@ if (changed.length === 0 || changed.some((name) =>
   specs.add("specs/uci_arena_evidence_service_v1.yaml");
 }
 if (changed.length === 0 || changed.some((name) =>
+  name === "src/config.mjs"
+  || name === "src/identity.mjs"
+  || name === "test/external_owner_config.test.mjs"
+  || name === "test/active_target_identity.test.mjs"
+  || name === "specs/path_admission_v1.yaml"
+  || name === "docs/external-owner-roots.md"
+  || name === "tools/spec-preflight.mjs")) {
+  specs.add("specs/path_admission_v1.yaml");
+}
+if (changed.length === 0 || changed.some((name) =>
   name === "src/cli.mjs"
   || name === "src/cli_contract.mjs"
   || name === "test/cli_contract.test.mjs"

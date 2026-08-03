@@ -1,0 +1,116 @@
+meta:
+  spec_id: evidence_path_admission_v1
+  version: 1
+  status: active
+  owner: configuration_and_target_resolution
+  purpose: >
+    Ensure filesystem paths that grant foreground-owner authority or active
+    target identity are admitted as bounded exact path types before use.
+
+authority:
+  parent_specs:
+    - specs/00_READ_FIRST.yaml
+    - specs/repository_boundary_v1.yaml
+    - specs/uci_arena_evidence_service_v1.yaml
+
+ownership:
+  configuration_owns:
+    - configuration file, document shape, safe merge keys, and path-field syntax
+    - externalOwnerRoots syntax, resolution, deduplication, and directory admission
+  target_resolution_owns:
+    - activeModelPointer file admission, bounded reading, JSON object admission, and target identity projection
+    - exact engine-file admission and stable content hashing
+  forbidden_duplication:
+    - resource adapters do not reinterpret configured owner-root types
+    - job execution does not repair active-pointer JSON or filesystem identity
+
+configuration_file:
+  maximum_bytes: 1048576
+  rules:
+    - A supplied configuration path must be a non-empty string of at most 32767 characters.
+    - The path must identify an exact regular non-symlink file.
+    - The path and opened descriptor must identify the same file.
+    - A size or identity change during the bounded read fails admission.
+    - File size, modification time, and change time must remain stable through the read.
+    - Read, parse, and close failures produce bounded diagnostics.
+
+configuration_document:
+  maximum_nesting_depth: 64
+  maximum_visited_values: 10000
+  rules:
+    - A supplied configuration file must decode to one plain JSON object.
+    - Null, arrays, and scalar top-level documents fail before merge.
+    - The keys __proto__, constructor, and prototype are forbidden at every object depth.
+    - Arrays are traversed so nested objects cannot bypass forbidden-key checks.
+    - Traversal is iterative and bounded before the recursive merge executes.
+    - The recursive merge repeats the forbidden-key check as defense in depth.
+    - Configured path fields and profile imports must be strings within the 32767-character path bound before path resolution.
+    - Priority process names must be strings matching the executable-basename grammar.
+
+external_owner_roots:
+  maximum_count: 64
+  maximum_path_characters: 32767
+  rules:
+    - Only non-empty string paths within the declared path bound are accepted.
+    - Relative paths resolve from the configuration file directory.
+    - Missing paths remain ignored for compatibility with optional external owners.
+    - Every existing path must be an exact regular directory and not a symbolic link.
+    - A regular file, socket, device, FIFO, or symbolic link fails configuration loading visibly.
+    - Canonical and legacy input keys cannot coexist.
+    - Output and serialization expose only externalOwnerRoots.
+    - Path-inspection failures produce bounded diagnostics.
+
+active_model_pointer:
+  maximum_bytes: 65536
+  rules:
+    - Missing pointer is a healthy waiting state.
+    - An existing pointer must be an exact regular non-symlink file.
+    - The file is bounded before JSON decoding.
+    - The path and opened descriptor must identify the same file.
+    - A size or identity change during the bounded read fails admission.
+    - File size, modification time, and change time must remain stable through the read.
+    - The decoded value must be one plain JSON object, not null, an array, or a scalar.
+    - Unreadable, oversized, wrong-type, symlinked, malformed, or non-object pointers return a bounded target-resolution reason.
+    - No pointer rejection throws through the daemon target-resolution loop.
+
+engine_identity:
+  rules:
+    - Configured and catalog engine paths must be exact regular non-symlink files.
+    - Hashing opens the admitted file without following symlinks where the platform exposes that flag.
+    - The path and opened descriptor must identify the same file before hashing.
+    - The path is revalidated after open and after hashing on platforms without a no-follow guarantee.
+    - Hashing reads only the size observed on the opened descriptor and rejects shrink or growth.
+    - File size, modification time, and change time must remain stable through the hash.
+    - Hashing failures return bounded reasons instead of publishing partial identity.
+
+model_root:
+  rules:
+    - Active and catalog model roots remain exact regular non-symlink directories.
+    - Model-root rejection returns a bounded target-resolution reason.
+
+validation:
+  required:
+    - configuration_file_regular_file_accepted
+    - configuration_file_symlink_rejected_where_supported
+    - configuration_file_oversize_rejected
+    - configuration_top_level_non_object_rejected
+    - configuration_forbidden_keys_rejected_recursively
+    - configuration_depth_and_value_bounds_enforced
+    - configured_path_field_types_rejected_before_path_resolution
+    - priority_process_names_require_strings
+    - existing_owner_directory_accepted
+    - missing_owner_root_ignored
+    - owner_regular_file_rejected
+    - owner_symlink_rejected_where_supported
+    - owner_path_above_bound_rejected
+    - missing_active_pointer_is_healthy
+    - active_pointer_regular_file_accepted
+    - active_pointer_directory_rejected
+    - active_pointer_symlink_rejected_where_supported
+    - active_pointer_oversize_rejected
+    - active_pointer_null_array_and_scalar_rejected
+    - malformed_pointer_returns_reason_without_throwing
+    - long_invalid_pointer_paths_return_bounded_reasons
+    - regular_engine_hash_accepted
+    - engine_symlink_rejected_where_supported
+    - existing_target_identity_and_legacy_catalog_tests_remain_green
