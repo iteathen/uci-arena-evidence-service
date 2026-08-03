@@ -34,7 +34,7 @@ import {
   startupStatus,
   uninstallStartup,
 } from "./platform_startup.mjs";
-import { PruneService } from "./prune_service.mjs";
+import { PruneOperation } from "./prune_operation.mjs";
 import { PruneStore } from "./prune_store.mjs";
 
 function output(value) {
@@ -229,8 +229,8 @@ async function main(argv = process.argv.slice(2)) {
     } else if (command === "prune") {
       const pruneStore = new PruneStore(config.paths.catalog);
       try {
-        const pruneService = new PruneService(pruneStore, config);
-        output(await pruneService.run({
+        const pruneOperation = new PruneOperation(pruneStore, config);
+        output(await pruneOperation.run({
           before: flags.before,
           confirm: flags.confirm || "",
         }));
