@@ -46,8 +46,13 @@ function indentedJson(value, spaces) {
 
 async function serializeJson(handle, state, summary, observations) {
   const summaryText = JSON.stringify(summary, null, 2);
-  if (!summaryText.endsWith("}")) throw new Error("dataset summary did not serialize as an object");
-  await writeText(handle, state, `${summaryText.slice(0, -1)},\n  "observations": [`);
+  const closingLine = summaryText.lastIndexOf("\n}");
+  if (closingLine < 0) throw new Error("dataset summary did not serialize as an object");
+  await writeText(
+    handle,
+    state,
+    `${summaryText.slice(0, closingLine)},\n  "observations": [`,
+  );
   let count = 0;
   for (const observation of observations) {
     await writeText(handle, state, count === 0 ? "\n" : ",\n");
@@ -74,6 +79,9 @@ export async function exportDataset(
 ) {
   if (!readStore || typeof readStore.withDatasetSnapshot !== "function") {
     throw new Error("dataset export requires a dataset read port");
+  }
+  if (typeof readStore.filename !== "string" || !readStore.filename.trim()) {
+    throw new Error("dataset export read port must identify its catalog file");
   }
   if (typeof datasetId !== "string" || !datasetId.trim()) {
     throw new Error("dataset export requires a dataset id");
