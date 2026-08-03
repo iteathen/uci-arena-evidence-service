@@ -46,7 +46,7 @@ test("daemon timing rejects changed values and invalid numeric types", () => {
   }
 });
 
-test("daemon timing rejects unknown and missing authority keys", () => {
+test("daemon timing projection rejects unknown and missing authority keys", () => {
   assert.throws(
     () => validateDaemonTiming({ ...canonicalDaemonTiming(), retryMs: 1 }),
     /must contain only/,
@@ -61,6 +61,21 @@ test("configuration loader publishes canonical daemon timing", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-daemon-timing-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const configFile = await writeConfig(root);
+
+  const config = await loadConfig({
+    configFile,
+    workspace: path.join(root, "workspace"),
+  });
+
+  assert.deepEqual(config.daemon, canonicalDaemonTiming());
+});
+
+test("configuration loader normalizes partial canonical timing", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-daemon-timing-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const configFile = await writeConfig(root, {
+    daemon: { heartbeatMs: DAEMON_HEARTBEAT_MS },
+  });
 
   const config = await loadConfig({
     configFile,
