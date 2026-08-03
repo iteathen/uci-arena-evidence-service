@@ -35,24 +35,3 @@ export function validateDaemonTiming(value) {
   }
   return value;
 }
-
-export function daemonHeartbeatProjection(heartbeatAt, nowMs = Date.now()) {
-  if (!Number.isFinite(nowMs)) {
-    throw new TypeError("daemon heartbeat projection requires a finite current time");
-  }
-  const timestamp = typeof heartbeatAt === "string"
-    ? Date.parse(heartbeatAt)
-    : Number.NaN;
-  if (!Number.isFinite(timestamp)) {
-    return {
-      heartbeatState: "missing",
-      heartbeatAgeMs: null,
-    };
-  }
-
-  const heartbeatAgeMs = Math.max(0, Math.floor(nowMs - timestamp));
-  return {
-    heartbeatState: heartbeatAgeMs >= DAEMON_STALE_MS ? "stale" : "fresh",
-    heartbeatAgeMs,
-  };
-}
