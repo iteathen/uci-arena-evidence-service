@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -32,14 +32,45 @@ for (const filename of sourceFiles(sourceRoot)) {
   }
 }
 
+const obsoleteLock = path.join(sourceRoot, "prune_lock.mjs");
+if (existsSync(obsoleteLock)) {
+  failures.push("src/prune_lock.mjs: racy filesystem prune lock must not exist");
+}
+
 const cli = readFileSync(path.join(sourceRoot, "cli.mjs"), "utf8");
 for (const required of [
-  'from "./prune_service.mjs"',
+  'from "./prune_operation.mjs"',
   'from "./prune_store.mjs"',
   "new PruneStore(config.paths.catalog)",
-  "new PruneService(pruneStore, config)",
+  "new PruneOperation(pruneStore, config)",
 ]) {
   if (!cli.includes(required)) failures.push(`src/cli.mjs: missing prune composition ${required}`);
+}
+if (cli.includes('from "./prune_service.mjs"')) {
+  failures.push("src/cli.mjs: the CLI must compose the leased PruneOperation, not the inner workflow");
+}
+
+const operation = readFileSync(path.join(sourceRoot, "prune_operation.mjs"), "utf8");
+for (const required of [
+  'from "./prune_service.mjs"',
+  "store.acquireOperationLease()",
+  "workflow.run({ ...input, heartbeat })",
+]) {
+  if (!operation.includes(required)) {
+    failures.push(`src/prune_operation.mjs: missing lifecycle ownership ${required}`);
+  }
+}
+
+const store = readFileSync(path.join(sourceRoot, "prune_store.mjs"), "utf8");
+for (const required of [
+  'const PRUNE_LOCK_KEY = "prune_operation_lock"',
+  'const PRUNE_HEARTBEAT_KEY = "prune_operation_heartbeat"',
+  "BEGIN IMMEDIATE",
+  "acquireOperationLease",
+]) {
+  if (!store.includes(required)) {
+    failures.push(`src/prune_store.mjs: missing transactional lease mechanism ${required}`);
+  }
 }
 
 if (failures.length > 0) {
