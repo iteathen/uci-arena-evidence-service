@@ -1,0 +1,79 @@
+meta:
+  spec_id: evidence_dataset_show_contract_v1
+  version: 1
+  status: active
+  owner: evidence_dataset_display
+  purpose: >
+    Preserve the direct `dataset show` JSON contract without memory proportional
+    to the complete dataset and without emitting catalog-corrupt or count-mismatched
+    partial content before validation completes.
+
+authority:
+  implementation:
+    display_workflow: src/dataset_show.mjs
+    validated_spool_provider: src/dataset_export.mjs
+    read_adapter: src/dataset_read_store.mjs
+    composition_root: src/cli.mjs
+  broader_contracts:
+    - specs/dataset_export_contract_v1.yaml
+    - specs/cli_contract_v1.yaml
+    - specs/uci_arena_evidence_service_v1.yaml
+  rule: >
+    Direct display reuses the validated JSON export contract. It does not open
+    SQLite, reinterpret observations, or maintain a second serializer.
+
+ownership:
+  display_workflow_owns:
+    - unique_disposable_spool_destination
+    - validated_complete_json_spool_creation
+    - bounded_file_to_writable_streaming
+    - writable_error_propagation
+    - spool_cleanup
+  must_not_own:
+    - dataset_read_schema
+    - observation_mapping
+    - JSON_document_construction
+    - dataset_authority
+    - catalog_mutation
+    - stdout_process_lifecycle
+
+behavior:
+  input: exact_dataset_id
+  output: one_complete_JSON_dataset_document_followed_by_newline
+  missing_dataset:
+    - Return missing to the CLI.
+    - Write no stdout bytes.
+    - Leave no spool file.
+  sequence:
+    - create_or_reuse_declared_spool_directory
+    - choose_unique_hidden_spool_destination
+    - produce_the_complete_validated_JSON_document_through_exportDataset
+    - after_snapshot_commit_stream_the_spool_to_the_supplied_writable
+    - never_end_the_supplied_writable
+    - remove_the_spool_in_all_success_and_failure_paths
+  rules:
+    - Memory is bounded by one file chunk plus exporter per-observation memory.
+    - Corrupt catalog JSON, count mismatch, sync failure, or snapshot failure
+      occurs before any stdout bytes are emitted.
+    - A downstream broken pipe may receive a prefix, but the failure remains
+      visible and the local spool is removed.
+    - The workflow never prints export metadata after the dataset document.
+
+spool:
+  ownership: disposable_export_workflow_artifact
+  location: explicit_Evidence_exports_directory
+  naming: hidden_pid_uuid_json
+  publication: exporter_atomic_file_contract
+  cleanup: unconditional_best_effort_after_open_handle_closure
+  preserved_data: false
+
+acceptance:
+  required:
+    - JSON_semantic_compatibility_with_catalog_dataset
+    - no_Catalog_dataset_materialization
+    - missing_dataset_zero_output
+    - corrupt_dataset_zero_output
+    - bounded_chunked_writable_substitution
+    - downstream_write_failure_cleanup
+    - successful_spool_cleanup
+    - no_writable_end_call
