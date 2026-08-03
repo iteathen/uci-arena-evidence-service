@@ -1,7 +1,27 @@
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { runtimeRoot } from "./config.mjs";
+
+const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u;
+
+export function validModelId(value) {
+  return MODEL_ID.test(String(value ?? ""));
+}
+
+function exactExistingPath(value, label, type) {
+  const candidate = path.resolve(String(value ?? ""));
+  let status;
+  try {
+    status = lstatSync(candidate);
+  } catch {
+    return { path: candidate, valid: false, reason: `${label} is missing: ${candidate}` };
+  }
+  const valid = type === "file" ? status.isFile() : status.isDirectory();
+  return valid
+    ? { path: candidate, valid: true, reason: "" }
+    : { path: candidate, valid: false, reason: `${label} has the wrong type: ${candidate}` };
+}
 
 export function sha256File(filename) {
   const digest = createHash("sha256");
@@ -10,6 +30,9 @@ export function sha256File(filename) {
 }
 
 export function targetIdentity(target) {
+  if (!validModelId(target.modelId)) {
+    throw new Error("target model id is invalid");
+  }
   return {
     target_id: target.id ?? null,
     label: target.label,
@@ -25,7 +48,9 @@ export function targetIdentity(target) {
 }
 
 export function resolveActiveTarget(config) {
-  if (!existsSync(config.activeModelPointer)) {
+  try {
+    lstatSync(config.activeModelPointer);
+  } catch {
     return { target: null, reason: "active model pointer is missing" };
   }
   let pointer;
@@ -35,6 +60,9 @@ export function resolveActiveTarget(config) {
     return { target: null, reason: `active model pointer is unreadable: ${error.message}` };
   }
   const modelId = String(pointer.model_id ?? pointer.active_model_id ?? "").trim();
+  if (!validModelId(modelId)) {
+    return { target: null, reason: "active model pointer model_id is invalid" };
+  }
   const modelFingerprint = String(
     pointer.model_fingerprint ?? pointer.runtime_identity?.model_fingerprint ?? "",
   ).trim();
@@ -49,31 +77,36 @@ export function resolveActiveTarget(config) {
   let modelRoot = String(pointer.model_root ?? "").trim();
   if (modelRoot) modelRoot = path.resolve(pointerRoot, modelRoot);
   if (!modelRoot && pointer.runtime_root) {
-    const runtimeRoot = path.resolve(pointerRoot, String(pointer.runtime_root));
-    modelRoot = path.basename(runtimeRoot).toLowerCase() === "current"
-      ? runtimeRoot
-      : path.join(runtimeRoot, "current");
+    const resolvedRuntimeRoot = path.resolve(pointerRoot, String(pointer.runtime_root));
+    modelRoot = path.basename(resolvedRuntimeRoot).toLowerCase() === "current"
+      ? resolvedRuntimeRoot
+      : path.join(resolvedRuntimeRoot, "current");
   }
-  if (!modelRoot && modelId) {
+  if (!modelRoot) {
     modelRoot = path.join(config.runtimeModelsRoot, modelId, "current");
   }
-  if (!modelId || !modelFingerprint || !provider || !modelRoot) {
+  if (!modelFingerprint || !provider) {
     return {
       target: null,
-      reason: "active model pointer lacks model_id, model_fingerprint, provider, or model root",
+      reason: "active model pointer lacks model_fingerprint or provider",
     };
   }
   const declaredEngine = String(
     pointer.engine_path ?? pointer.deployment?.engine_path ?? config.engine,
   ).trim();
-  const enginePath = path.resolve(pointerRoot, declaredEngine);
-  if (!existsSync(enginePath) || !statSync(enginePath).isFile()) {
-    return { target: null, reason: `configured engine is missing: ${enginePath}` };
+  const engine = exactExistingPath(
+    path.resolve(pointerRoot, declaredEngine),
+    "configured engine",
+    "file",
+  );
+  if (!engine.valid) {
+    return { target: null, reason: engine.reason };
   }
-  if (!existsSync(modelRoot)) {
-    return { target: null, reason: `active model root is missing: ${modelRoot}` };
+  const model = exactExistingPath(modelRoot, "active model root", "directory");
+  if (!model.valid) {
+    return { target: null, reason: model.reason };
   }
-  const engineSha256 = sha256File(enginePath);
+  const engineSha256 = sha256File(engine.path);
   const declaredEngineSha256 = String(
     pointer.engine_sha256 ?? pointer.deployment?.engine_sha256 ?? "",
   ).replace(/^sha256:/i, "").toLowerCase();
@@ -85,9 +118,9 @@ export function resolveActiveTarget(config) {
       id: null,
       label: String(pointer.model_label ?? modelId),
       modelId,
-      modelRoot,
+      modelRoot: model.path,
       modelFingerprint,
-      enginePath,
+      enginePath: engine.path,
       engineSha256,
       provider,
       hardwareDriverFingerprint: String(
@@ -104,22 +137,37 @@ export function resolveActiveTarget(config) {
 }
 
 export function resolveJobTarget(job, catalog, config) {
-  const target = job.targetId ? catalog.target(job.targetId) : resolveActiveTarget(config).target;
+  const active = job.targetId ? null : resolveActiveTarget(config);
+  const target = job.targetId ? catalog.target(job.targetId) : active.target;
   if (!target) {
-    const active = resolveActiveTarget(config);
-    return { target: null, reason: active.reason || `explicit target ${job.targetId} is missing` };
+    return {
+      target: null,
+      reason: active?.reason || `explicit target ${job.targetId} is missing`,
+    };
   }
-  if (!existsSync(target.enginePath)) {
-    return { target: null, reason: `target engine is missing: ${target.enginePath}` };
+  if (!validModelId(target.modelId)) {
+    return { target: null, reason: "target model id is invalid" };
   }
-  const currentSha = sha256File(target.enginePath);
+  const engine = exactExistingPath(target.enginePath, "target engine", "file");
+  if (!engine.valid) {
+    return { target: null, reason: engine.reason };
+  }
+  const currentSha = sha256File(engine.path);
   if (currentSha !== target.engineSha256) {
     return { target: null, reason: "target engine identity drifted after enqueue" };
   }
-  if (!existsSync(target.modelRoot)) {
-    return { target: null, reason: `target model root is missing: ${target.modelRoot}` };
+  const model = exactExistingPath(target.modelRoot, "target model root", "directory");
+  if (!model.valid) {
+    return { target: null, reason: model.reason };
   }
-  return { target, reason: "" };
+  return {
+    target: {
+      ...target,
+      enginePath: engine.path,
+      modelRoot: model.path,
+    },
+    reason: "",
+  };
 }
 
 export function repositoryRelative(filename) {
