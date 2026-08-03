@@ -154,6 +154,24 @@ export class PruneService {
     return lexical;
   }
 
+  async validateQuarantineFile(filename, sha256, roots, expectedSize = null) {
+    const physical = await this.fs.realpath(filename);
+    if (!relativeInside(roots.quarantine, physical)) {
+      throw new Error(`Evidence prune staged artifact ${sha256} escapes quarantine`);
+    }
+    const info = await this.fs.lstat(filename);
+    if (!info.isFile() || info.isSymbolicLink()) {
+      throw new Error(`Evidence prune staged artifact ${sha256} is not a regular file`);
+    }
+    if (!Number.isSafeInteger(info.size)
+        || (expectedSize !== null && info.size !== expectedSize)) {
+      throw new Error(`Evidence prune staged artifact ${sha256} size is invalid`);
+    }
+    if (await this.hashFile(filename) !== sha256) {
+      throw new Error(`Evidence prune staged artifact ${sha256} digest is invalid`);
+    }
+  }
+
   async validateCandidate(candidate, roots) {
     const filename = await this.assertCatalogDestination(candidate, roots, { requireFile: true });
     const info = await this.fs.lstat(filename);
@@ -163,23 +181,29 @@ export class PruneService {
     if (!Number.isSafeInteger(info.size) || info.size !== candidate.sizeBytes) {
       throw new Error(`Evidence prune artifact ${candidate.sha256} size does not match the catalog`);
     }
-    const digest = await this.hashFile(filename);
-    if (digest !== candidate.sha256) {
+    if (await this.hashFile(filename) !== candidate.sha256) {
       throw new Error(`Evidence prune artifact ${candidate.sha256} digest does not match its identity`);
     }
     return filename;
   }
 
-  async restoreStaged(staged) {
+  async restoreStaged(staged, roots, heartbeat) {
     const failures = [];
     for (const item of [...staged].reverse()) {
       try {
+        heartbeat();
         const sourceExists = await exists(item.quarantine, this.fs);
         const destinationExists = await exists(item.original, this.fs);
         if (!sourceExists && destinationExists) continue;
         if (!sourceExists || destinationExists) {
           throw new Error(`ambiguous restore state for ${item.sha256}`);
         }
+        await this.validateQuarantineFile(
+          item.quarantine,
+          item.sha256,
+          roots,
+          item.sizeBytes,
+        );
         await this.fs.mkdir(path.dirname(item.original), { recursive: true, mode: 0o700 });
         await this.fs.rename(item.quarantine, item.original);
       } catch (error) {
@@ -189,17 +213,20 @@ export class PruneService {
     return failures;
   }
 
-  async cleanupCommittedFiles(staged) {
+  async cleanupCommittedFiles(staged, heartbeat) {
     for (const item of staged) {
+      heartbeat();
       await this.fs.rm(item.quarantine, { force: false });
     }
   }
 
-  async recover() {
+  async recover(heartbeat) {
+    heartbeat();
     const roots = await this.roots();
     const recovered = { operations: 0, restored: 0, cleaned: 0 };
     const entries = await this.fs.readdir(this.quarantineRoot, { withFileTypes: true });
     for (const operation of entries) {
+      heartbeat();
       if (!operation.isDirectory() || !UUID.test(operation.name)) {
         throw new Error(`unsafe entry in Evidence prune quarantine: ${operation.name}`);
       }
@@ -227,12 +254,20 @@ export class PruneService {
       if (withRows.length > 0 && audit) {
         throw new Error(`rolled-back Evidence prune operation ${operation.name} unexpectedly has an audit row`);
       }
+      if (withoutRows.length > 0
+          && (!audit
+            || audit.confirmed !== true
+            || audit.result?.operationId !== operation.name
+            || audit.result?.cleanupPending !== true)) {
+        throw new Error(`Evidence prune operation ${operation.name} lacks confirmed pending audit authority`);
+      }
 
       let restored = 0;
       let cleaned = 0;
       if (withRows.length > 0) {
         const restorePlan = [];
         for (const file of withRows) {
+          heartbeat();
           const destination = await this.assertCatalogDestination(
             file.row,
             roots,
@@ -243,27 +278,33 @@ export class PruneService {
               `Evidence prune recovery found both catalog and quarantine files for ${file.sha256}`,
             );
           }
-          const stagedInfo = await this.fs.lstat(file.stagedPath);
-          if (!stagedInfo.isFile() || stagedInfo.isSymbolicLink()
-              || !Number.isSafeInteger(stagedInfo.size)
-              || stagedInfo.size !== file.row.sizeBytes
-              || await this.hashFile(file.stagedPath) !== file.sha256) {
-            throw new Error(`Evidence prune recovery artifact ${file.sha256} is invalid`);
-          }
+          await this.validateQuarantineFile(
+            file.stagedPath,
+            file.sha256,
+            roots,
+            file.row.sizeBytes,
+          );
           restorePlan.push({ ...file, destination });
         }
         for (const item of restorePlan) {
+          heartbeat();
           await this.fs.mkdir(path.dirname(item.destination), { recursive: true, mode: 0o700 });
           await this.fs.rename(item.stagedPath, item.destination);
           ++restored;
         }
       } else {
         for (const file of withoutRows) {
+          heartbeat();
+          await this.validateQuarantineFile(file.stagedPath, file.sha256, roots);
+        }
+        for (const file of withoutRows) {
+          heartbeat();
           await this.fs.rm(file.stagedPath, { force: false });
           ++cleaned;
         }
       }
       if (audit?.result?.cleanupPending === true && restored === 0) {
+        heartbeat();
         this.store.updateAuditResult(operation.name, {
           ...audit.result,
           cleanupPending: false,
@@ -278,14 +319,18 @@ export class PruneService {
     return { roots, recovered };
   }
 
-  async run({ before, confirm = "" }) {
+  async run({ before, confirm = "", heartbeat = () => {} }) {
+    if (typeof heartbeat !== "function") throw new Error("Evidence prune heartbeat is invalid");
+    heartbeat();
     const cutoff = normalizeCutoff(before);
-    const { roots, recovered } = await this.recover();
+    const { roots, recovered } = await this.recover(heartbeat);
+    heartbeat();
     const operationId = randomUUID();
     const requestedAt = nowIso();
     const confirmed = confirm === "PRUNE";
     if (!confirmed) {
       const stats = this.store.candidateStats(cutoff);
+      heartbeat();
       const result = publicResult({
         operationId,
         before: cutoff,
@@ -313,7 +358,9 @@ export class PruneService {
     try {
       result = await this.store.withConfirmedPrune(cutoff, async ({ stats, candidates }) => {
         for (const candidate of candidates) {
+          heartbeat();
           const original = await this.validateCandidate(candidate, roots);
+          heartbeat();
           const quarantine = path.join(
             operationDirectory,
             `${candidate.sha256}.artifact`,
@@ -322,11 +369,20 @@ export class PruneService {
             throw new Error(`Evidence prune quarantine collision for ${candidate.sha256}`);
           }
           await this.fs.rename(original, quarantine);
-          staged.push({
+          const stagedItem = {
             sha256: candidate.sha256,
+            sizeBytes: candidate.sizeBytes,
             original,
             quarantine,
-          });
+          };
+          staged.push(stagedItem);
+          await this.validateQuarantineFile(
+            quarantine,
+            candidate.sha256,
+            roots,
+            candidate.sizeBytes,
+          );
+          heartbeat();
           this.store.deleteCandidate(candidate.sha256);
         }
         if (staged.length !== stats.artifactCount) {
@@ -334,6 +390,7 @@ export class PruneService {
             `Evidence prune candidate count changed: expected=${stats.artifactCount} staged=${staged.length}`,
           );
         }
+        heartbeat();
         this.store.reconcileDatasetCounts();
         const pending = publicResult({
           operationId,
@@ -356,10 +413,11 @@ export class PruneService {
           bytes: stats.bytes,
           result: pending,
         });
+        heartbeat();
         return pending;
       });
     } catch (error) {
-      const restorationFailures = await this.restoreStaged(staged);
+      const restorationFailures = await this.restoreStaged(staged, roots, heartbeat);
       try {
         await this.fs.rmdir(operationDirectory);
       } catch {}
@@ -373,10 +431,11 @@ export class PruneService {
     }
 
     try {
-      await this.cleanupCommittedFiles(staged);
+      await this.cleanupCommittedFiles(staged, heartbeat);
     } catch {
       return result;
     }
+    heartbeat();
     const completed = {
       ...result,
       cleanupPending: false,
@@ -388,6 +447,7 @@ export class PruneService {
       return result;
     }
     try {
+      heartbeat();
       await this.fs.rmdir(operationDirectory);
       return completed;
     } catch {
