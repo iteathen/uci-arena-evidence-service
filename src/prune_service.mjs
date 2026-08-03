@@ -11,7 +11,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const STAGED_ARTIFACT = /^([0-9a-f]{64})\.artifact$/u;
 
@@ -251,14 +251,14 @@ export class PruneService {
         throw new Error(`Evidence prune operation ${operation.name} has mixed commit state`);
       }
       const audit = this.store.audit(operation.name);
+      if (audit && (audit.confirmed !== true || audit.result?.operationId !== operation.name)) {
+        throw new Error(`Evidence prune operation ${operation.name} has invalid audit authority`);
+      }
       if (withRows.length > 0 && audit) {
         throw new Error(`rolled-back Evidence prune operation ${operation.name} unexpectedly has an audit row`);
       }
       if (withoutRows.length > 0
-          && (!audit
-            || audit.confirmed !== true
-            || audit.result?.operationId !== operation.name
-            || audit.result?.cleanupPending !== true)) {
+          && (!audit || audit.result?.cleanupPending !== true)) {
         throw new Error(`Evidence prune operation ${operation.name} lacks confirmed pending audit authority`);
       }
 
