@@ -17,9 +17,11 @@ function assertWritable(writable) {
 function writeChunk(writable, chunk) {
   return new Promise((resolvePromise, rejectPromise) => {
     let settled = false;
+    let deferredFailure = null;
     const settle = (error) => {
       if (settled) return;
       settled = true;
+      if (deferredFailure !== null) clearImmediate(deferredFailure);
       writable.removeListener("error", onError);
       if (error) rejectPromise(error);
       else resolvePromise();
@@ -27,7 +29,13 @@ function writeChunk(writable, chunk) {
     const onError = (error) => settle(error);
     writable.once("error", onError);
     try {
-      writable.write(chunk, (error) => settle(error ?? null));
+      writable.write(chunk, (error) => {
+        if (error) {
+          deferredFailure = setImmediate(() => settle(error));
+        } else {
+          settle(null);
+        }
+      });
     } catch (error) {
       settle(error);
     }
