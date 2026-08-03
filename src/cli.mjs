@@ -12,6 +12,7 @@ import {
 } from "./cli_contract.mjs";
 import { loadConfig } from "./config.mjs";
 import { runDaemon } from "./daemon.mjs";
+import { projectDaemonHeartbeatStatus } from "./daemon_liveness.mjs";
 import { exportDataset } from "./dataset_export.mjs";
 import { DatasetReadStore } from "./dataset_read_store.mjs";
 import { showDataset } from "./dataset_show.mjs";
@@ -119,12 +120,12 @@ async function main(argv = process.argv.slice(2)) {
       output({
         schema: "uci_arena_evidence_init_v1",
         workspace: config.workspace,
-        status: catalog.status(),
+        status: projectDaemonHeartbeatStatus(catalog.status()),
       });
     } else if (command === "daemon") {
       output(await runDaemon(catalog, config, { once: Boolean(flags.once) }));
     } else if (command === "status") {
-      output(catalog.status());
+      output(projectDaemonHeartbeatStatus(catalog.status()));
     } else if (command === "pause") {
       output(catalog.setPaused(true, flags.reason || "operator pause"));
     } else if (command === "resume") {
