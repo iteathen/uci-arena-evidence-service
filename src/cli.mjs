@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import { isAllowedAdapter } from "./adapters.mjs";
 import { Catalog } from "./catalog.mjs";
 import { enqueueFirstCampaign, jobFingerprint } from "./campaign.mjs";
@@ -14,6 +12,8 @@ import {
 } from "./cli_contract.mjs";
 import { loadConfig } from "./config.mjs";
 import { runDaemon } from "./daemon.mjs";
+import { exportDataset } from "./dataset_export.mjs";
+import { DatasetReadStore } from "./dataset_read_store.mjs";
 import { sha256File } from "./identity.mjs";
 import {
   apiError,
@@ -36,16 +36,6 @@ import {
 
 function output(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
-}
-
-async function writeAtomic(filename, body) {
-  const temporary = `${filename}.${process.pid}.${randomUUID()}.tmp`;
-  await writeFile(temporary, body, { encoding: "utf8", flag: "wx" });
-  try {
-    await rename(temporary, filename);
-  } finally {
-    await rm(temporary, { force: true });
-  }
 }
 
 function usage() {
@@ -213,21 +203,18 @@ async function main(argv = process.argv.slice(2)) {
       if (!dataset) throw new Error(`unknown dataset ${flags.id}`);
       output(dataset);
     } else if (command === "dataset export") {
-      const dataset = catalog.dataset(flags.id);
-      if (!dataset) throw new Error(`unknown dataset ${flags.id}`);
-      const format = flags.format || "jsonl";
-      const filename = path.resolve(flags.out);
-      await mkdir(path.dirname(filename), { recursive: true });
-      const body = format === "json"
-        ? `${JSON.stringify(dataset, null, 2)}\n`
-        : `${dataset.observations.map((row) => JSON.stringify(row)).join("\n")}\n`;
-      await writeAtomic(filename, body);
-      output({
-        datasetId: flags.id,
-        format,
-        filename,
-        observations: dataset.observations.length,
-      });
+      const readStore = new DatasetReadStore(config.paths.catalog);
+      try {
+        const result = await exportDataset(readStore, {
+          datasetId: flags.id,
+          out: flags.out,
+          format: flags.format || "jsonl",
+        });
+        if (result === null) throw new Error(`unknown dataset ${flags.id}`);
+        output(result);
+      } finally {
+        readStore.close();
+      }
     } else if (command === "prune") {
       output(catalog.prune({ before: flags.before, confirm: flags.confirm || "" }));
     } else if (command === "startup install") {
