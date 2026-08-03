@@ -14,6 +14,7 @@ import { loadConfig } from "./config.mjs";
 import { runDaemon } from "./daemon.mjs";
 import { exportDataset } from "./dataset_export.mjs";
 import { DatasetReadStore } from "./dataset_read_store.mjs";
+import { showDataset } from "./dataset_show.mjs";
 import { sha256File } from "./identity.mjs";
 import {
   apiError,
@@ -199,9 +200,17 @@ async function main(argv = process.argv.slice(2)) {
     } else if (command === "profile list") {
       output(listQualifiedProfiles(config, catalog));
     } else if (command === "dataset show") {
-      const dataset = catalog.dataset(flags.id);
-      if (!dataset) throw new Error(`unknown dataset ${flags.id}`);
-      output(dataset);
+      const readStore = new DatasetReadStore(config.paths.catalog);
+      try {
+        const result = await showDataset(readStore, {
+          datasetId: flags.id,
+          spoolDirectory: config.paths.exports,
+          writable: process.stdout,
+        });
+        if (result === null) throw new Error(`unknown dataset ${flags.id}`);
+      } finally {
+        readStore.close();
+      }
     } else if (command === "dataset export") {
       const readStore = new DatasetReadStore(config.paths.catalog);
       try {
