@@ -73,7 +73,6 @@ function addArtifact(
   `).run(createdAt, sha256);
 
   let datasetId = null;
-  let jobId = null;
   if (withObservation) {
     datasetId = context.catalog.createDataset({ campaign: "prune-test" });
     const job = context.catalog.enqueueJob({
@@ -83,7 +82,6 @@ function addArtifact(
       fingerprint: digest(randomUUID()),
       config: {},
     });
-    jobId = job.id;
     context.catalog.addObservation({
       schema: "uci_arena_observation_envelope_v1",
       observation_id: randomUUID(),
@@ -115,12 +113,15 @@ function addArtifact(
     body,
     sizeBytes: Buffer.byteLength(body),
     datasetId,
-    jobId,
   };
 }
 
+function quarantineRoot(config) {
+  return path.join(config.paths.artifacts, ".prune-quarantine");
+}
+
 function quarantineEntries(config) {
-  const root = path.join(config.paths.artifacts, ".prune-quarantine");
+  const root = quarantineRoot(config);
   return existsSync(root) ? readdirSync(root) : [];
 }
 
@@ -165,9 +166,8 @@ test("dry run uses aggregate catalog state and preserves files and rows", async 
   context.store.withConfirmedPrune = () => {
     throw new Error("dry run must not open the destructive transaction");
   };
-  const service = new PruneService(context.store, context.config);
 
-  const result = await service.run({
+  const result = await new PruneService(context.store, context.config).run({
     before: "2026-01-01T00:00:00Z",
   });
 
@@ -187,9 +187,8 @@ test("dry run uses aggregate catalog state and preserves files and rows", async 
 test("confirmed prune validates stages commits audits and cleans", async (t) => {
   const context = await fixture(t);
   const artifact = addArtifact(context);
-  const service = new PruneService(context.store, context.config);
 
-  const result = await service.run({
+  const result = await new PruneService(context.store, context.config).run({
     before: "2026-01-01T00:00:00Z",
     confirm: "PRUNE",
   });
@@ -216,10 +215,9 @@ test("audit insertion failure rolls back rows and restores staged files", async 
     if (value.confirmed) throw new Error("injected audit failure");
     return insertAudit(value);
   };
-  const service = new PruneService(context.store, context.config);
 
   await assert.rejects(
-    service.run({
+    new PruneService(context.store, context.config).run({
       before: "2026-01-01T00:00:00Z",
       confirm: "PRUNE",
     }),
@@ -233,6 +231,36 @@ test("audit insertion failure rolls back rows and restores staged files", async 
   assert.deepEqual(quarantineEntries(context.config), []);
 });
 
+test("post-rename identity failure leaves the altered file quarantined and catalog rows intact", async (t) => {
+  const context = await fixture(t);
+  const artifact = addArtifact(context);
+  const service = new PruneService(context.store, context.config, {
+    async hashFile(filename) {
+      return filename.includes(".prune-quarantine")
+        ? "0".repeat(64)
+        : artifact.sha256;
+    },
+  });
+
+  await assert.rejects(
+    service.run({
+      before: "2026-01-01T00:00:00Z",
+      confirm: "PRUNE",
+    }),
+    AggregateError,
+  );
+  assert.ok(context.store.artifact(artifact.sha256));
+  assert.equal(existsSync(artifact.artifactPath), false);
+  assert.equal(quarantineEntries(context.config).length, 1);
+
+  const recovery = await new PruneService(context.store, context.config).run({
+    before: "2024-01-01T00:00:00Z",
+  });
+  assert.equal(recovery.recovered.restored, 1);
+  assert.equal(existsSync(artifact.artifactPath), true);
+  assert.deepEqual(quarantineEntries(context.config), []);
+});
+
 test("rollback restoration failure leaves a recoverable quarantine marker", async (t) => {
   const context = await fixture(t);
   const artifact = addArtifact(context);
@@ -241,12 +269,10 @@ test("rollback restoration failure leaves a recoverable quarantine marker", asyn
     if (value.confirmed) throw new Error("injected database failure");
     return insertAudit(value);
   };
-  let staged = false;
   let restoreFailed = false;
   const injectedFs = fsOps({
     async rename(from, to) {
-      if (from === artifact.artifactPath) staged = true;
-      if (staged && from.includes(".prune-quarantine") && to === artifact.artifactPath
+      if (from.includes(".prune-quarantine") && to === artifact.artifactPath
           && !restoreFailed) {
         restoreFailed = true;
         throw new Error("injected restore failure");
@@ -254,10 +280,9 @@ test("rollback restoration failure leaves a recoverable quarantine marker", asyn
       return fsPromises.rename(from, to);
     },
   });
-  const service = new PruneService(context.store, context.config, { fsOps: injectedFs });
 
   await assert.rejects(
-    service.run({
+    new PruneService(context.store, context.config, { fsOps: injectedFs }).run({
       before: "2026-01-01T00:00:00Z",
       confirm: "PRUNE",
     }),
@@ -309,6 +334,25 @@ test("post-commit cleanup failure remains audited and is completed on the next r
   assert.equal(recovery.recovered.cleaned, 1);
   assert.deepEqual(quarantineEntries(context.config), []);
   assert.equal(context.store.audit(result.auditId).result.cleanupPending, false);
+});
+
+test("rowless quarantine files require a matching confirmed pending audit", async (t) => {
+  const context = await fixture(t);
+  const body = "forged quarantine file\n";
+  const sha256 = digest(body);
+  const operation = randomUUID();
+  const directory = path.join(quarantineRoot(context.config), operation);
+  mkdirSync(directory, { recursive: true });
+  const staged = path.join(directory, `${sha256}.artifact`);
+  writeFileSync(staged, body, "utf8");
+
+  await assert.rejects(
+    new PruneService(context.store, context.config).run({
+      before: "2024-01-01T00:00:00Z",
+    }),
+    /lacks confirmed pending audit authority/,
+  );
+  assert.equal(existsSync(staged), true);
 });
 
 test("unsafe catalog paths size changes and digest changes fail without deletion", async (t) => {
@@ -379,11 +423,7 @@ test("recovery classifies a mixed operation before touching either file", async 
   const absentBody = "committed candidate\n";
   const absentSha = digest(absentBody);
   const operation = randomUUID();
-  const directory = path.join(
-    context.config.paths.artifacts,
-    ".prune-quarantine",
-    operation,
-  );
+  const directory = path.join(quarantineRoot(context.config), operation);
   mkdirSync(directory, { recursive: true });
   const retainedStaged = path.join(directory, `${retained.sha256}.artifact`);
   const absentStaged = path.join(directory, `${absentSha}.artifact`);
