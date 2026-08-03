@@ -41,7 +41,7 @@ integer_controls:
     revokeWithinMs: {minimum: 250, maximum: 2000}
   rules:
     - Values are safe integers.
-    - Fractional, string, NaN, infinite, and out-of-range values fail configuration loading.
+    - Fractional, string, null, unsafe, and out-of-range values fail configuration loading.
 
 priority_process_names:
   maximum_count: 64
@@ -51,15 +51,16 @@ priority_process_names:
     - The value is an array.
     - Every entry is a non-empty string within the length bound.
     - Names are unique under ASCII case folding because process matching is case-insensitive.
-    - Unknown path separators, whitespace, shell syntax, and control characters are rejected.
+    - Path separators, whitespace, shell syntax, and control characters are rejected.
 
 validation:
   required:
     - canonical_defaults_accepted
     - fractional_continuous_thresholds_accepted
     - fractional_integer_controls_rejected
-    - string_nan_infinite_integer_controls_rejected
-    - process_name_count_boundary
+    - string_null_unsafe_and_out_of_range_integer_controls_rejected
+    - exact_64_process_name_boundary
+    - reject_65_process_names
     - process_name_length_boundary
     - case_insensitive_duplicate_process_names_rejected
     - invalid_process_name_grammar_rejected
