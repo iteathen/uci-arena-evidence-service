@@ -29,6 +29,14 @@ if (changed.length === 0 || changed.some((name) =>
   specs.add("specs/daemon_timing_v1.yaml");
 }
 if (changed.length === 0 || changed.some((name) =>
+  name === "src/catalog.mjs"
+  || name === "src/daemon_liveness.mjs"
+  || name === "test/daemon_liveness.test.mjs"
+  || name === "specs/daemon_liveness_v1.yaml"
+  || name === "tools/spec-preflight.mjs")) {
+  specs.add("specs/daemon_liveness_v1.yaml");
+}
+if (changed.length === 0 || changed.some((name) =>
   name === "src/config.mjs"
   || name === "src/resource_governor.mjs"
   || name === "test/resource_config.test.mjs"
