@@ -5,12 +5,13 @@ meta:
   owner: evidence_retention_and_prune
   purpose: >
     Remove explicitly selected retained raw artifacts without allowing a
-    database rollback, process crash, corrupt catalog path, symlink escape, or
-    failed audit write to leave authoritative catalog rows pointing at missing
-    files.
+    database rollback, process crash, concurrent recovery, corrupt catalog path,
+    symlink escape, identity race, or failed audit write to leave authoritative
+    catalog rows pointing at missing files.
 
 authority:
   implementation:
+    lifecycle_owner: src/prune_operation.mjs
     store_adapter: src/prune_store.mjs
     workflow: src/prune_service.mjs
     composition_root: src/cli.mjs
@@ -23,13 +24,21 @@ authority:
     member: Catalog.prune
     status: non_production_legacy_pending_deletion
   rule: >
-    The typed PruneStore is the only production SQLite prune port and the
-    PruneService is the only production filesystem-retention workflow. The CLI
-    and other components may not call Catalog.prune or issue prune SQL directly.
+    PruneOperation owns the complete serialized lifecycle, PruneStore is the
+    only production SQLite prune port, and PruneService is the only production
+    filesystem-retention workflow. The CLI and other components may not call
+    Catalog.prune or issue prune SQL directly.
 
 ownership:
+  lifecycle_owner_owns:
+    - one_prune_operation_lease
+    - periodic_lease_heartbeat
+    - lease_failure_propagation
+    - lease_release_on_success_or_failure
+    - composition_of_store_and_workflow
   store_adapter_owns:
     - read_write_catalog_connection
+    - transactional_metadata_lease
     - candidate_count_and_byte_aggregation
     - ordered_candidate_iteration
     - exact_artifact_lookup
@@ -44,6 +53,7 @@ ownership:
     - artifact_root_physical_containment
     - regular_file_and_symlink_rejection
     - file_size_and_sha256_verification
+    - post_rename_staged_identity_verification
     - operation_quarantine_directory
     - atomic_artifact_staging
     - rollback_restoration
@@ -57,6 +67,30 @@ ownership:
     - general_workspace_cleanup
     - installer_uninstall_data_policy
     - arbitrary_path_deletion
+
+operation_lease:
+  storage:
+    owner_key: metadata.prune_operation_lock
+    heartbeat_key: metadata.prune_operation_heartbeat
+  owner_identity:
+    - schema
+    - pid
+    - nonce
+    - acquired_at
+  rules:
+    - Acquisition and stale takeover occur inside `BEGIN IMMEDIATE` against the
+      existing metadata key/value table; no filesystem lock is used.
+    - A live process with the matching nonce and a heartbeat no older than 30
+      seconds prevents another operation from acquiring authority.
+    - A dead process, malformed lease, mismatched heartbeat, or stale heartbeat
+      may be replaced only while holding the SQLite write transaction.
+    - The immutable owner value is the compare-and-swap release token.
+    - Heartbeat updates succeed only while the exact owner value remains active.
+    - Recovery, dry-run audit, destructive mutation, rollback restoration,
+      post-commit cleanup, and audit finalization all occur under one lease.
+    - The workflow checks lease authority at every operation directory and
+      candidate boundary in addition to the periodic monitor.
+    - Lease loss is a visible failure; it is never downgraded to a warning.
 
 input:
   before:
@@ -81,15 +115,17 @@ candidate_contract:
   order: [created_at, sha256]
   dry_run:
     - Uses SQL aggregate count and byte sum.
-    - Does not enumerate, hash, move, or delete files.
+    - Does not enumerate, hash, move, or delete candidate files.
+    - Performs quarantine recovery before reporting the dry-run result.
   destructive:
     - Holds one exclusive SQLite write transaction while candidate membership,
       filesystem staging, catalog deletion, count reconciliation, and audit-row
       insertion are performed.
-    - Iterates candidates lazily rather than materializing the candidate set.
+    - Copies the frozen candidate membership into a connection-local temporary
+      table and iterates it lazily rather than materializing JavaScript arrays.
 
 artifact_validation:
-  required:
+  required_before_staging:
     - sha256_is_64_lowercase_hex_after_normalization
     - size_bytes_is_nonnegative_safe_integer
     - stored_path_is_absolute
@@ -98,12 +134,18 @@ artifact_validation:
     - lstat_is_regular_file_and_not_symbolic_link
     - current_file_size_matches_catalog_size
     - current_sha256_matches_catalog_identity
+  required_after_staging_before_row_deletion:
+    - staged_realpath_remains_inside_owned_quarantine
+    - staged_lstat_is_regular_file_and_not_symbolic_link
+    - staged_size_still_matches_catalog_size
+    - staged_sha256_still_matches_catalog_identity
   failure:
     - Abort the operation before deleting that artifact's catalog rows.
     - Roll back the database transaction.
-    - Restore every artifact already staged in the operation.
-    - Preserve any unrestored file in its owned quarantine for automatic
-      recovery and report the failure visibly.
+    - Restore every unchanged artifact already staged in the operation.
+    - Never restore an altered staged file under an authoritative catalog path.
+    - Preserve any unrestored file in owned quarantine for automatic recovery
+      and report the failure visibly.
 
 quarantine:
   root: artifacts/.prune-quarantine
@@ -114,35 +156,47 @@ quarantine:
       atomic.
     - A staged file is never considered deleted until its catalog rows and audit
       row commit.
-    - On rollback, staged files are renamed back to the exact validated catalog
+    - On rollback, validated staged files are renamed back to the exact catalog
       paths before the operation returns.
     - On commit, staged files are deleted from quarantine.
     - A post-commit cleanup failure is recorded conservatively as
       cleanupPending=true; catalog evidence remains truthful because rows are
       already absent and the file remains only in owned disposable quarantine.
+    - The empty operation directory remains as a recovery marker until the audit
+      is finalized with cleanupPending=false.
 
 recovery:
   trigger:
     - before_every_prune_dry_run_or_destructive_run
   rules:
+    - Recovery runs only while the prune operation lease is held.
     - Scan only direct UUID-named operation directories under the owned
       quarantine root.
-    - Accept only `<sha256>.artifact` files.
-    - When the artifact row still exists, validate its catalog destination and
-      restore the quarantined file if the destination is absent.
-    - When the artifact row no longer exists, delete the quarantined file as a
-      committed cleanup remainder.
+    - Accept only `<sha256>.artifact` regular files whose real paths and hashes
+      remain inside the owned quarantine.
+    - Classify the complete operation directory before mutating any file.
+    - When every artifact row still exists and no audit row exists, validate all
+      catalog destinations and restore the quarantined files if destinations are
+      absent.
+    - When every artifact row is absent, deletion authority requires a matching
+      confirmed audit for the operation UUID with cleanupPending=true.
+    - A rowless quarantine file without that audit is never deleted.
     - If both quarantine and catalog destination exist, fail closed instead of
       overwriting either file.
-    - Remove an operation directory only after all owned files are resolved.
-    - Unknown entries, unsafe paths, or ambiguous state fail visibly and remain
-      untouched.
+    - Mixed row-present and row-absent operation directories fail closed before
+      touching either class.
+    - Remove an operation directory only after all owned files are resolved and
+      the matching audit is finalized.
+    - Unknown entries, unsafe paths, invalid identities, or ambiguous state fail
+      visibly and remain untouched.
 
 database_transaction:
   sequence:
     - begin_immediate
-    - lazily_select_candidates
+    - freeze_candidates_in_temporary_table
+    - lazily_iterate_candidates
     - validate_and_stage_each_candidate
+    - revalidate_each_staged_identity
     - delete_observations_by_artifact_identity
     - delete_exact_artifact_row_and_require_one_change
     - recompute_dataset_observation_counts
@@ -150,14 +204,16 @@ database_transaction:
     - commit
   rollback:
     - rollback_database
-    - restore_staged_files_in_reverse_order
+    - restore_valid_staged_files_in_reverse_order
   audit:
     - The confirmed audit row is inserted in the same transaction as catalog
       deletion and count reconciliation.
-    - Dry-run audit insertion is one ordinary single-statement write.
-    - After successful physical quarantine cleanup, update the existing audit
-      result to cleanupPending=false.
-    - If the final update fails, the conservative pending state remains.
+    - Dry-run audit insertion is one ordinary single-statement write under the
+      operation lease.
+    - After physical quarantine cleanup, update the existing audit result to
+      cleanupPending=false before removing the empty operation marker.
+    - If final audit or marker cleanup fails, conservative pending state and the
+      marker remain recoverable.
 
 result_schema:
   schema: uci_arena_evidence_prune_result_v2
@@ -182,6 +238,9 @@ production_guard:
     - No file under src/ except src/prune_service.mjs may call `.prune(`.
     - No file under src/ except src/prune_store.mjs may mention prune SQL tables
       or execute artifact/observation deletion for prune.
+    - The CLI composes PruneOperation plus PruneStore and never imports the inner
+      PruneService directly.
+    - The obsolete filesystem `prune_lock.mjs` must not exist.
     - The legacy Catalog.prune definition may remain temporarily but cannot be a
       production caller target.
 
@@ -191,11 +250,15 @@ acceptance:
     - aggregate_dry_run_without_file_enumeration
     - successful_validated_prune_and_same_transaction_audit
     - external_path_symlink_and_quarantine_escape_rejection
-    - size_and_digest_mismatch_rejection
+    - size_digest_and_post_rename_identity_mismatch_rejection
     - injected_database_failure_restores_staged_files
     - injected_restore_failure_leaves_recoverable_quarantine
     - process_interruption_recovery_for_rolled_back_and_committed_states
+    - rowless_quarantine_requires_confirmed_pending_audit
+    - mixed_recovery_state_is_classified_before_mutation
     - post_commit_cleanup_failure_is_audited_pending
     - second_run_clears_pending_quarantine
+    - transactional_lease_exclusion_takeover_heartbeat_and_release_tests
+    - lease_loss_is_observed_by_the_workflow
     - prior_catalog_rows_never_reference_a_missing_nonquarantined_file
     - production_authority_guard
