@@ -43,6 +43,7 @@ if (changed.length === 0 || changed.some((name) =>
   || name === "test/prune_operation.test.mjs"
   || name === "test/prune_service.test.mjs"
   || name === "specs/prune_contract_v1.yaml"
+  || name === "docs/transactional-prune.md"
   || name === "tools/check-prune-authority.mjs"
   || name === "tools/spec-preflight.mjs"
   || name === "package.json")) {
