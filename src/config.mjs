@@ -56,7 +56,7 @@ const defaults = {
   ),
   gpuIsolationAttestation: process.env.UCI_ARENA_GPU_ISOLATION_ATTESTATION?.trim() || "",
   profileImports: [],
-  restaurantRoots: [],
+  externalOwnerRoots: [],
   resources: {
     minimumFreeWorkspaceGb: 75,
     pauseAvailableMemoryGb: 6,
@@ -96,6 +96,24 @@ function configuredPath(value, directory) {
   return path.isAbsolute(value) ? path.normalize(value) : path.resolve(directory, value);
 }
 
+function validateOwnerRoots(value) {
+  if (!Array.isArray(value)
+      || value.length > 64
+      || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
+    throw new Error("externalOwnerRoots must contain at most 64 non-empty directory paths");
+  }
+  return value;
+}
+
+function configuredExternalOwnerRoots(loaded, fallback) {
+  const canonical = loaded.externalOwnerRoots;
+  const legacy = loaded.restaurantRoots;
+  if (canonical !== undefined && legacy !== undefined) {
+    throw new Error("configure only externalOwnerRoots; the legacy owner-root key cannot be combined with it");
+  }
+  return validateOwnerRoots(canonical ?? legacy ?? fallback);
+}
+
 export function assertSupportedNode() {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major < 24 || (major === 24 && minor < 15)) {
@@ -112,6 +130,7 @@ function validate(config) {
       )) {
     throw new Error("profileImports must contain at most 64 non-empty file paths");
   }
+  validateOwnerRoots(config.externalOwnerRoots);
   const resources = config.resources;
   const numbers = [
     ["minimumFreeWorkspaceGb", resources.minimumFreeWorkspaceGb, 1, 100_000],
@@ -144,7 +163,9 @@ export async function loadConfig({ configFile, workspace } = {}) {
     loaded = JSON.parse(await readFile(filename, "utf8"));
     directory = path.dirname(filename);
   }
+  const ownerRoots = configuredExternalOwnerRoots(loaded, defaults.externalOwnerRoots);
   const config = merge(structuredClone(defaults), loaded);
+  delete config.restaurantRoots;
   config.configFile = configFile ? path.resolve(configFile) : null;
   const environmentRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim();
   config.runtimeRoot = environmentRuntimeRoot
@@ -166,9 +187,15 @@ export async function loadConfig({ configFile, workspace } = {}) {
   ]) {
     config[key] = configuredPath(config[key], directory);
   }
-  config.restaurantRoots = [...new Set((config.restaurantRoots ?? [])
+  config.externalOwnerRoots = [...new Set(ownerRoots
     .map((root) => configuredPath(root, directory))
     .filter((root) => existsSync(root)))];
+  Object.defineProperty(config, "restaurantRoots", {
+    configurable: false,
+    enumerable: false,
+    value: config.externalOwnerRoots,
+    writable: false,
+  });
   config.profileImports = [...new Set(
     config.profileImports.map((profile) => configuredPath(profile, directory)),
   )];
