@@ -7,6 +7,11 @@ import path from "node:path";
 import { isAllowedAdapter } from "./adapters.mjs";
 import { Catalog } from "./catalog.mjs";
 import { enqueueFirstCampaign, jobFingerprint } from "./campaign.mjs";
+import {
+  parseCliArguments,
+  parseIntegerFlag,
+  parseJsonObjectFlag,
+} from "./cli_contract.mjs";
 import { loadConfig } from "./config.mjs";
 import { runDaemon } from "./daemon.mjs";
 import { sha256File } from "./identity.mjs";
@@ -29,41 +34,6 @@ import {
   uninstallStartup,
 } from "./platform_startup.mjs";
 
-function takeGlobalOptions(argv) {
-  const remaining = [];
-  const options = {};
-  for (let index = 0; index < argv.length; ++index) {
-    const value = argv[index];
-    if (value === "--workspace" || value === "--config") {
-      if (argv[index + 1] === undefined) throw new Error(`${value} requires a value`);
-      options[value.slice(2)] = argv[++index];
-    } else {
-      remaining.push(value);
-    }
-  }
-  return { remaining, options };
-}
-
-function parseFlags(argv) {
-  const positional = [];
-  const flags = {};
-  for (let index = 0; index < argv.length; ++index) {
-    const value = argv[index];
-    if (!value.startsWith("--")) {
-      positional.push(value);
-      continue;
-    }
-    const name = value.slice(2);
-    if (new Set(["once", "json", "help"]).has(name)) {
-      flags[name] = true;
-      continue;
-    }
-    if (argv[index + 1] === undefined) throw new Error(`${value} requires a value`);
-    flags[name] = argv[++index];
-  }
-  return { positional, flags };
-}
-
 function output(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
 }
@@ -80,22 +50,23 @@ async function writeAtomic(filename, body) {
 
 function usage() {
   return `Usage:
+  arena-evidence help
   arena-evidence init [--workspace PATH]
   arena-evidence daemon [--once]
   arena-evidence status [--json]
   arena-evidence pause [--reason TEXT]
   arena-evidence resume
   arena-evidence target add --model-id ID --model-root PATH --fingerprint N --engine PATH --provider NAME
-  arena-evidence target list
+  arena-evidence target list [--json]
   arena-evidence target remove --id UUID
   arena-evidence job enqueue --campaign first [--target UUID]
-  arena-evidence job enqueue --adapter NAME --shard ID [--target UUID] [--config-json JSON]
-  arena-evidence job list [--state STATE]
+  arena-evidence job enqueue --adapter NAME --shard ID [--target UUID] [--config-json JSON] [--priority N]
+  arena-evidence job list [--state STATE] [--json]
   arena-evidence job cancel|retry --id UUID
-  arena-evidence dataset list
+  arena-evidence dataset list [--json]
   arena-evidence dataset show --id UUID
   arena-evidence dataset export --id UUID --out PATH [--format json|jsonl]
-  arena-evidence profile list
+  arena-evidence profile list [--json]
   arena-evidence api describe|status
   arena-evidence api outputs list [--cursor SHA256]
   arena-evidence api outputs inspect --id OUTPUT_ID
@@ -107,44 +78,36 @@ function usage() {
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
   arena-evidence startup install|status|uninstall
 
-Global options: --workspace PATH --config FILE`;
+Global options: --workspace PATH --config FILE --help`;
 }
 
 async function main(argv = process.argv.slice(2)) {
-  const { remaining, options } = takeGlobalOptions(argv);
-  const { positional, flags } = parseFlags(remaining);
-  if (positional.length === 0 || positional[0] === "help" || flags.help) {
+  const parsed = parseCliArguments(argv);
+  if (parsed.help) {
     process.stdout.write(`${usage()}\n`);
     return 0;
   }
-  const config = await loadConfig({ configFile: options.config, workspace: options.workspace });
+  const { command, flags, globals } = parsed;
+  const config = await loadConfig({
+    configFile: globals.config,
+    workspace: globals.workspace,
+  });
   await mkdir(config.workspace, { recursive: true });
   const catalog = new Catalog(config);
   try {
-    const [command, subcommand] = positional;
-    if (command === "api" && subcommand === "describe") {
+    if (command === "api describe") {
       output(describeApi());
-    } else if (command === "api" && subcommand === "status") {
+    } else if (command === "api status") {
       output(statusApi(catalog));
-    } else if (command === "api" && subcommand === "outputs"
-        && positional[2] === "list") {
+    } else if (command === "api outputs list") {
       output(listOutputsApi(catalog, config, flags.cursor || ""));
-    } else if (command === "api" && subcommand === "outputs"
-        && positional[2] === "inspect") {
-      if (!flags.id) throw new Error("api outputs inspect requires --id");
+    } else if (command === "api outputs inspect") {
       output(inspectOutputApi(catalog, config, flags.id));
-    } else if (command === "api" && subcommand === "config"
-        && positional[2] === "validate") {
+    } else if (command === "api config validate") {
       output(validateConfigApi(config));
-    } else if (command === "api" && subcommand === "orchestration"
-        && positional[2] === "status") {
+    } else if (command === "api orchestration status") {
       output(orchestrationStatusApi(catalog));
-    } else if (command === "api" && subcommand === "target"
-        && positional[2] === "register") {
-      const required = ["model-id", "model-root", "model-fingerprint", "engine", "provider"];
-      for (const name of required) {
-        if (!flags[name]) throw new Error(`api target register requires --${name}`);
-      }
+    } else if (command === "api target register") {
       output(registerTargetApi(catalog, {
         label: flags.label || flags["model-id"],
         modelId: flags["model-id"],
@@ -153,19 +116,18 @@ async function main(argv = process.argv.slice(2)) {
         enginePath: flags.engine,
         provider: flags.provider,
         hardwareDriverFingerprint: flags["provider-fingerprint"] || "",
-        uciOptions: flags["uci-options-json"] ? JSON.parse(flags["uci-options-json"]) : {},
+        uciOptions: parseJsonObjectFlag(flags, "uci-options-json"),
       }));
-    } else if (command === "api" && subcommand === "campaign"
-        && positional[2] === "enqueue") {
+    } else if (command === "api campaign enqueue") {
       output(enqueueCampaignApi(catalog, flags.target || null));
-    } else if (command === "api" && subcommand === "job"
-        && positional[2] === "control") {
-      if (!flags.id || !flags.action) {
-        throw new Error("api job control requires --id and --action");
-      }
+    } else if (command === "api job control") {
       output(controlJobApi(catalog, flags.id, flags.action));
     } else if (command === "init") {
-      output({ schema: "uci_arena_evidence_init_v1", workspace: config.workspace, status: catalog.status() });
+      output({
+        schema: "uci_arena_evidence_init_v1",
+        workspace: config.workspace,
+        status: catalog.status(),
+      });
     } else if (command === "daemon") {
       output(await runDaemon(catalog, config, { once: Boolean(flags.once) }));
     } else if (command === "status") {
@@ -174,11 +136,11 @@ async function main(argv = process.argv.slice(2)) {
       output(catalog.setPaused(true, flags.reason || "operator pause"));
     } else if (command === "resume") {
       output(catalog.setPaused(false));
-    } else if (command === "target" && subcommand === "add") {
-      const required = ["model-id", "model-root", "fingerprint", "engine", "provider"];
-      for (const name of required) if (!flags[name]) throw new Error(`target add requires --${name}`);
+    } else if (command === "target add") {
       if (!existsSync(flags.engine)) throw new Error(`engine is missing: ${flags.engine}`);
-      if (!existsSync(flags["model-root"])) throw new Error(`model root is missing: ${flags["model-root"]}`);
+      if (!existsSync(flags["model-root"])) {
+        throw new Error(`model root is missing: ${flags["model-root"]}`);
+      }
       output(catalog.addTarget({
         label: flags.label || flags["model-id"],
         modelId: flags["model-id"],
@@ -188,14 +150,13 @@ async function main(argv = process.argv.slice(2)) {
         engineSha256: sha256File(flags.engine),
         provider: flags.provider,
         hardwareDriverFingerprint: flags["hardware-fingerprint"] || "",
-        uciOptions: flags["uci-options-json"] ? JSON.parse(flags["uci-options-json"]) : {},
+        uciOptions: parseJsonObjectFlag(flags, "uci-options-json"),
       }));
-    } else if (command === "target" && subcommand === "list") {
+    } else if (command === "target list") {
       output(catalog.targets());
-    } else if (command === "target" && subcommand === "remove") {
-      if (!flags.id) throw new Error("target remove requires --id");
+    } else if (command === "target remove") {
       output({ removed: catalog.removeTarget(flags.id), id: flags.id });
-    } else if (command === "job" && subcommand === "enqueue") {
+    } else if (command === "job enqueue") {
       if (flags.campaign === "first") {
         if (flags.target && !catalog.target(flags.target)) {
           throw new Error(`unknown target ${flags.target}`);
@@ -203,16 +164,13 @@ async function main(argv = process.argv.slice(2)) {
         const jobs = enqueueFirstCampaign(catalog, { targetId: flags.target || null });
         output({ campaign: "time_control_curve_v1", jobs });
       } else {
-        if (!flags.adapter || !flags.shard) {
-          throw new Error("job enqueue requires --adapter and --shard");
-        }
         if (!isAllowedAdapter(flags.adapter)) {
           throw new Error(`adapter ${flags.adapter} is not allow-listed`);
         }
         if (flags.target && !catalog.target(flags.target)) {
           throw new Error(`unknown target ${flags.target}`);
         }
-        const value = flags["config-json"] ? JSON.parse(flags["config-json"]) : {};
+        const value = parseJsonObjectFlag(flags, "config-json");
         const fingerprint = jobFingerprint({
           adapter: flags.adapter,
           target: flags.target || "active",
@@ -235,52 +193,51 @@ async function main(argv = process.argv.slice(2)) {
           targetId: flags.target || null,
           shardId: flags.shard,
           datasetId,
-          priority: Number.parseInt(flags.priority ?? "0", 10),
+          priority: parseIntegerFlag(flags, "priority"),
           config: value,
           fingerprint,
         }));
       }
-    } else if (command === "job" && subcommand === "list") {
+    } else if (command === "job list") {
       output(catalog.jobs({ state: flags.state }));
-    } else if (command === "job" && subcommand === "cancel") {
-      if (!flags.id) throw new Error("job cancel requires --id");
+    } else if (command === "job cancel") {
       output(catalog.cancelJob(flags.id));
-    } else if (command === "job" && subcommand === "retry") {
-      if (!flags.id) throw new Error("job retry requires --id");
+    } else if (command === "job retry") {
       output(catalog.retryJob(flags.id));
-    } else if (command === "dataset" && subcommand === "list") {
+    } else if (command === "dataset list") {
       output(catalog.datasets());
-    } else if (command === "profile" && subcommand === "list") {
+    } else if (command === "profile list") {
       output(listQualifiedProfiles(config, catalog));
-    } else if (command === "dataset" && subcommand === "show") {
-      if (!flags.id) throw new Error("dataset show requires --id");
+    } else if (command === "dataset show") {
       const dataset = catalog.dataset(flags.id);
       if (!dataset) throw new Error(`unknown dataset ${flags.id}`);
       output(dataset);
-    } else if (command === "dataset" && subcommand === "export") {
-      if (!flags.id || !flags.out) throw new Error("dataset export requires --id and --out");
+    } else if (command === "dataset export") {
       const dataset = catalog.dataset(flags.id);
       if (!dataset) throw new Error(`unknown dataset ${flags.id}`);
       const format = flags.format || "jsonl";
-      if (!new Set(["json", "jsonl"]).has(format)) throw new Error("export format must be json or jsonl");
       const filename = path.resolve(flags.out);
       await mkdir(path.dirname(filename), { recursive: true });
       const body = format === "json"
         ? `${JSON.stringify(dataset, null, 2)}\n`
         : `${dataset.observations.map((row) => JSON.stringify(row)).join("\n")}\n`;
       await writeAtomic(filename, body);
-      output({ datasetId: flags.id, format, filename, observations: dataset.observations.length });
+      output({
+        datasetId: flags.id,
+        format,
+        filename,
+        observations: dataset.observations.length,
+      });
     } else if (command === "prune") {
-      if (!flags.before) throw new Error("prune requires --before");
       output(catalog.prune({ before: flags.before, confirm: flags.confirm || "" }));
-    } else if (command === "startup" && subcommand === "install") {
+    } else if (command === "startup install") {
       output(await installStartup(config));
-    } else if (command === "startup" && subcommand === "status") {
+    } else if (command === "startup status") {
       output(await startupStatus(config));
-    } else if (command === "startup" && subcommand === "uninstall") {
+    } else if (command === "startup uninstall") {
       output(await uninstallStartup(config));
     } else {
-      throw new Error(`unknown command: ${positional.join(" ")}\n${usage()}`);
+      throw new Error(`unreachable CLI command: ${command}`);
     }
     return 0;
   } finally {
