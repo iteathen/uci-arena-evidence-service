@@ -1,0 +1,52 @@
+meta:
+  spec_id: evidence_daemon_liveness_v1
+  version: 1
+  status: active
+  owner: daemon_liveness_projection
+  purpose: >
+    Project the persisted Evidence daemon heartbeat into one bounded observational
+    liveness state without duplicating process-lock or daemon-owner authority.
+
+authority:
+  parent_specs:
+    - specs/00_READ_FIRST.yaml
+    - specs/repository_boundary_v1.yaml
+    - specs/uci_arena_evidence_service_v1.yaml
+    - specs/daemon_timing_v1.yaml
+
+ownership:
+  owner: src/daemon_liveness.mjs
+  projection_owner: src/catalog.mjs
+  consumers:
+    - direct CLI status
+    - Manager CLI-JSON status API
+  rules:
+    - Timestamp parsing, age calculation, future clamping, and stale classification have one owner.
+    - Manager and Installer consume the public status fields and do not recalculate liveness.
+    - Heartbeat liveness is observational and does not replace daemon-lock, PID, process-tree, or exact-owner verification.
+
+contract:
+  stale_threshold_ms: 300000
+  public_fields:
+    heartbeat_state:
+      type: enum
+      values: [missing, fresh, stale]
+    heartbeat_age_ms:
+      type: nullable_nonnegative_safe_integer
+  rules:
+    - Missing, non-string, empty, or malformed heartbeat timestamps project missing and null age.
+    - Valid timestamps with age below 300000 milliseconds project fresh.
+    - Valid timestamps with age at or above 300000 milliseconds project stale.
+    - Future timestamps clamp to zero age and project fresh.
+    - Classification does not depend on daemon phase.
+    - Existing heartbeatAt remains available for compatibility.
+
+validation:
+  required:
+    - exact_299999_fresh_boundary
+    - exact_300000_stale_boundary
+    - missing_and_malformed_timestamp
+    - future_timestamp_clamped_to_zero
+    - stopped_running_and_failed_phase_independence
+    - bounded_status_serialization
+    - Manager_status_projection_compatibility
