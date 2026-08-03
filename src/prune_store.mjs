@@ -1,5 +1,10 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+
+const PRUNE_LOCK_KEY = "prune_operation_lock";
+const PRUNE_HEARTBEAT_KEY = "prune_operation_heartbeat";
+const PRUNE_HEARTBEAT_STALE_MS = 30_000;
 
 function safeCount(value, label) {
   const number = Number(value);
@@ -9,16 +14,30 @@ function safeCount(value, label) {
   return number;
 }
 
-function parseAuditResult(text, auditId) {
+function processAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+function parseObject(text, label) {
   try {
     const value = JSON.parse(text);
     if (!value || typeof value !== "object" || Array.isArray(value)) {
-      throw new Error("result is not an object");
+      throw new Error("value is not an object");
     }
     return value;
   } catch (error) {
-    throw new Error(`Evidence prune audit ${auditId} contains invalid JSON: ${error.message}`);
+    throw new Error(`${label} contains invalid JSON: ${error.message}`);
   }
+}
+
+function parseAuditResult(text, auditId) {
+  return parseObject(text, `Evidence prune audit ${auditId}`);
 }
 
 function candidateRow(row) {
@@ -62,6 +81,139 @@ export class PruneStore {
 
   assertOpen() {
     if (this.closed) throw new Error("PruneStore is closed");
+  }
+
+  acquireOperationLease({
+    pid = process.pid,
+    processAliveImpl = processAlive,
+    nowMs = () => Date.now(),
+  } = {}) {
+    this.assertOpen();
+    if (!Number.isSafeInteger(pid) || pid <= 0) {
+      throw new Error("Evidence prune lease pid must be a positive safe integer");
+    }
+    if (typeof processAliveImpl !== "function" || typeof nowMs !== "function") {
+      throw new Error("Evidence prune lease dependencies are invalid");
+    }
+
+    const acquiredAtMs = nowMs();
+    if (!Number.isSafeInteger(acquiredAtMs) || acquiredAtMs < 0) {
+      throw new Error("Evidence prune lease clock is invalid");
+    }
+    const owner = {
+      schema: "uci_arena_evidence_prune_lock_v1",
+      pid,
+      nonce: randomUUID(),
+      acquired_at: new Date(acquiredAtMs).toISOString(),
+    };
+    const ownerJson = JSON.stringify(owner);
+    const heartbeatJson = JSON.stringify({
+      schema: "uci_arena_evidence_prune_heartbeat_v1",
+      nonce: owner.nonce,
+      heartbeat_ms: acquiredAtMs,
+    });
+
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const ownerRow = this.database.prepare(`
+        SELECT value FROM metadata WHERE key=?
+      `).get(PRUNE_LOCK_KEY);
+      const heartbeatRow = this.database.prepare(`
+        SELECT value FROM metadata WHERE key=?
+      `).get(PRUNE_HEARTBEAT_KEY);
+      if (ownerRow) {
+        let existingOwner = null;
+        let existingHeartbeat = null;
+        try {
+          existingOwner = parseObject(ownerRow.value, "Evidence prune operation lease");
+          existingHeartbeat = heartbeatRow
+            ? parseObject(heartbeatRow.value, "Evidence prune operation heartbeat")
+            : null;
+        } catch {}
+        const heartbeatMs = Number(existingHeartbeat?.heartbeat_ms);
+        const heartbeatFresh = Number.isSafeInteger(heartbeatMs)
+          && heartbeatMs >= 0
+          && acquiredAtMs - heartbeatMs <= PRUNE_HEARTBEAT_STALE_MS;
+        const sameLease = existingHeartbeat?.nonce === existingOwner?.nonce;
+        const alive = processAliveImpl(Number(existingOwner?.pid));
+        if (alive && sameLease && heartbeatFresh) {
+          throw new Error(
+            `another Evidence prune operation is active under pid ${existingOwner.pid}`,
+          );
+        }
+      }
+      this.database.prepare(`
+        INSERT INTO metadata(key,value) VALUES(?,?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value
+      `).run(PRUNE_LOCK_KEY, ownerJson);
+      this.database.prepare(`
+        INSERT INTO metadata(key,value) VALUES(?,?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value
+      `).run(PRUNE_HEARTBEAT_KEY, heartbeatJson);
+      this.database.exec("COMMIT");
+    } catch (error) {
+      try {
+        this.database.exec("ROLLBACK");
+      } catch {}
+      throw error;
+    }
+
+    let released = false;
+    return {
+      owner: { ...owner },
+      heartbeat: () => {
+        this.assertOpen();
+        if (released) throw new Error("Evidence prune operation lease is released");
+        const heartbeatMs = nowMs();
+        if (!Number.isSafeInteger(heartbeatMs) || heartbeatMs < 0) {
+          throw new Error("Evidence prune lease clock is invalid");
+        }
+        const nextHeartbeat = JSON.stringify({
+          schema: "uci_arena_evidence_prune_heartbeat_v1",
+          nonce: owner.nonce,
+          heartbeat_ms: heartbeatMs,
+        });
+        const changed = this.database.prepare(`
+          UPDATE metadata SET value=?
+          WHERE key=?
+            AND EXISTS (
+              SELECT 1 FROM metadata owner
+              WHERE owner.key=? AND owner.value=?
+            )
+        `).run(
+          nextHeartbeat,
+          PRUNE_HEARTBEAT_KEY,
+          PRUNE_LOCK_KEY,
+          ownerJson,
+        ).changes;
+        if (changed !== 1) {
+          throw new Error("Evidence prune operation lease ownership changed during heartbeat");
+        }
+      },
+      release: () => {
+        this.assertOpen();
+        if (released) return;
+        this.database.exec("BEGIN IMMEDIATE");
+        try {
+          const changed = this.database.prepare(`
+            DELETE FROM metadata WHERE key=? AND value=?
+          `).run(PRUNE_LOCK_KEY, ownerJson).changes;
+          if (changed !== 1) {
+            throw new Error("Evidence prune operation lease ownership changed before release");
+          }
+          this.database.prepare(`
+            DELETE FROM metadata WHERE key=?
+          `).run(PRUNE_HEARTBEAT_KEY);
+          this.database.exec("COMMIT");
+          released = true;
+        } catch (error) {
+          try {
+            this.database.exec("ROLLBACK");
+          } catch {}
+          throw error;
+        }
+      },
+    };
   }
 
   candidateStats(cutoff) {
