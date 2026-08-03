@@ -9,18 +9,18 @@ export function validModelId(value) {
   return MODEL_ID.test(String(value ?? ""));
 }
 
-function exactExistingPath(value, kind) {
+function exactExistingPath(value, label, type) {
   const candidate = path.resolve(String(value ?? ""));
   let status;
   try {
     status = lstatSync(candidate);
   } catch {
-    return { path: candidate, valid: false, reason: `${kind} is missing: ${candidate}` };
+    return { path: candidate, valid: false, reason: `${label} is missing: ${candidate}` };
   }
-  const valid = kind === "engine" ? status.isFile() : status.isDirectory();
+  const valid = type === "file" ? status.isFile() : status.isDirectory();
   return valid
     ? { path: candidate, valid: true, reason: "" }
-    : { path: candidate, valid: false, reason: `${kind} has the wrong type: ${candidate}` };
+    : { path: candidate, valid: false, reason: `${label} has the wrong type: ${candidate}` };
 }
 
 export function sha256File(filename) {
@@ -92,11 +92,15 @@ export function resolveActiveTarget(config) {
   const declaredEngine = String(
     pointer.engine_path ?? pointer.deployment?.engine_path ?? config.engine,
   ).trim();
-  const engine = exactExistingPath(path.resolve(pointerRoot, declaredEngine), "configured engine");
+  const engine = exactExistingPath(
+    path.resolve(pointerRoot, declaredEngine),
+    "configured engine",
+    "file",
+  );
   if (!engine.valid) {
     return { target: null, reason: engine.reason };
   }
-  const model = exactExistingPath(modelRoot, "active model root");
+  const model = exactExistingPath(modelRoot, "active model root", "directory");
   if (!model.valid) {
     return { target: null, reason: model.reason };
   }
@@ -142,7 +146,7 @@ export function resolveJobTarget(job, catalog, config) {
   if (!validModelId(target.modelId)) {
     return { target: null, reason: "target model id is invalid" };
   }
-  const engine = exactExistingPath(target.enginePath, "target engine");
+  const engine = exactExistingPath(target.enginePath, "target engine", "file");
   if (!engine.valid) {
     return { target: null, reason: engine.reason };
   }
@@ -150,7 +154,7 @@ export function resolveJobTarget(job, catalog, config) {
   if (currentSha !== target.engineSha256) {
     return { target: null, reason: "target engine identity drifted after enqueue" };
   }
-  const model = exactExistingPath(target.modelRoot, "target model root");
+  const model = exactExistingPath(target.modelRoot, "target model root", "directory");
   if (!model.valid) {
     return { target: null, reason: model.reason };
   }
