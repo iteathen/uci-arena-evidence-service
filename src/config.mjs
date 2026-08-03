@@ -14,6 +14,8 @@ const MAX_CONFIG_ERROR_CHARACTERS = 512;
 const MAX_CONFIG_DISPLAY_PATH_CHARACTERS = 320;
 const MAX_CONFIG_NESTING_DEPTH = 64;
 const MAX_CONFIG_VISITED_VALUES = 10_000;
+const MAX_PRIORITY_PROCESS_NAMES = 64;
+const MAX_PRIORITY_PROCESS_NAME_CHARACTERS = 128;
 const FORBIDDEN_OBJECT_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export const packageRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -335,26 +337,43 @@ function validate(config) {
   if (!resources || typeof resources !== "object" || Array.isArray(resources)) {
     throw new Error("resources must be an object");
   }
-  const numbers = [
+  const continuousNumbers = [
     ["minimumFreeWorkspaceGb", resources.minimumFreeWorkspaceGb, 1, 100_000],
     ["pauseAvailableMemoryGb", resources.pauseAvailableMemoryGb, 1, 10_000],
     ["maximumUsedMemoryPercent", resources.maximumUsedMemoryPercent, 1, 99],
     ["maximumUsedCpuPercent", resources.maximumUsedCpuPercent, 0, 99],
     ["maximumGpuUtilPercent", resources.maximumGpuUtilPercent, 0, 100],
+  ];
+  for (const [name, value, minimum, maximum] of continuousNumbers) {
+    if (!Number.isFinite(value) || value < minimum || value > maximum) {
+      throw new Error(`resources.${name} must be in ${minimum}..${maximum}`);
+    }
+  }
+  const integerControls = [
     ["inputIdleMs", resources.inputIdleMs, 0, 86_400_000],
     ["consecutiveIdleSamples", resources.consecutiveIdleSamples, 1, 100],
     ["pollMs", resources.pollMs, 100, 2_000],
     ["revokeWithinMs", resources.revokeWithinMs, 250, 2_000],
   ];
-  for (const [name, value, minimum, maximum] of numbers) {
-    if (!Number.isFinite(value) || value < minimum || value > maximum) {
-      throw new Error(`resources.${name} must be in ${minimum}..${maximum}`);
+  for (const [name, value, minimum, maximum] of integerControls) {
+    if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+      throw new Error(`resources.${name} must be an integer in ${minimum}..${maximum}`);
     }
   }
   if (!Array.isArray(resources.priorityProcessNames)
+      || resources.priorityProcessNames.length > MAX_PRIORITY_PROCESS_NAMES
       || resources.priorityProcessNames.some((name) =>
-        typeof name !== "string" || !/^[A-Za-z0-9_.-]+$/i.test(name))) {
-    throw new Error("resources.priorityProcessNames must contain executable basenames");
+        typeof name !== "string"
+        || name.length === 0
+        || name.length > MAX_PRIORITY_PROCESS_NAME_CHARACTERS
+        || !/^[A-Za-z0-9_.-]+$/i.test(name))) {
+    throw new Error(
+      "resources.priorityProcessNames must contain at most 64 executable basenames of at most 128 characters",
+    );
+  }
+  const foldedProcessNames = resources.priorityProcessNames.map((name) => name.toLowerCase());
+  if (new Set(foldedProcessNames).size !== foldedProcessNames.length) {
+    throw new Error("resources.priorityProcessNames must be unique ignoring ASCII case");
   }
 }
 
