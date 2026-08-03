@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   DAEMON_HEARTBEAT_STALE_MS,
   daemonHeartbeatLiveness,
+  projectDaemonHeartbeatStatus,
 } from "../src/daemon_liveness.mjs";
 
 const NOW = Date.parse("2026-08-03T23:30:00.000Z");
@@ -42,14 +43,36 @@ test("future heartbeat age clamps to zero", () => {
 
 test("classification is independent of daemon phase", () => {
   for (const phase of ["running", "stopped", "failed"]) {
-    const projected = { phase, ...daemonHeartbeatLiveness(atAge(1_000), NOW) };
-    assert.equal(projected.heartbeat_state, "fresh");
-    assert.equal(projected.heartbeat_age_ms, 1_000);
+    const projected = projectDaemonHeartbeatStatus({
+      schema: "uci_arena_evidence_status_v1",
+      daemon: { phase, heartbeatAt: atAge(1_000) },
+    }, NOW);
+    assert.equal(projected.daemon.heartbeat_state, "fresh");
+    assert.equal(projected.daemon.heartbeat_age_ms, 1_000);
   }
 });
 
-test("invalid clock and threshold fail closed", () => {
+test("status projection is immutable and preserves compatibility fields", () => {
+  const status = {
+    schema: "uci_arena_evidence_status_v1",
+    daemon: {
+      phase: "running",
+      heartbeatAt: atAge(2_000),
+      lastError: "",
+    },
+  };
+  const projected = projectDaemonHeartbeatStatus(status, NOW);
+  assert.notEqual(projected, status);
+  assert.notEqual(projected.daemon, status.daemon);
+  assert.equal(projected.daemon.heartbeatAt, status.daemon.heartbeatAt);
+  assert.equal(projected.daemon.heartbeat_state, "fresh");
+  assert.equal(projected.daemon.heartbeat_age_ms, 2_000);
+  assert.equal(Object.hasOwn(status.daemon, "heartbeat_state"), false);
+});
+
+test("invalid clock, threshold, and status shape fail closed", () => {
   assert.throws(() => daemonHeartbeatLiveness(atAge(0), Number.NaN), /clock/);
   assert.throws(() => daemonHeartbeatLiveness(atAge(0), NOW, 0), /threshold/);
   assert.throws(() => daemonHeartbeatLiveness(atAge(0), NOW, 1.5), /threshold/);
+  assert.throws(() => projectDaemonHeartbeatStatus(null, NOW), /requires an object/);
 });
