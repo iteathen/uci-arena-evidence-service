@@ -34,6 +34,8 @@ import {
   startupStatus,
   uninstallStartup,
 } from "./platform_startup.mjs";
+import { PruneService } from "./prune_service.mjs";
+import { PruneStore } from "./prune_store.mjs";
 
 function output(value) {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
@@ -225,7 +227,16 @@ async function main(argv = process.argv.slice(2)) {
         readStore.close();
       }
     } else if (command === "prune") {
-      output(catalog.prune({ before: flags.before, confirm: flags.confirm || "" }));
+      const pruneStore = new PruneStore(config.paths.catalog);
+      try {
+        const pruneService = new PruneService(pruneStore, config);
+        output(await pruneService.run({
+          before: flags.before,
+          confirm: flags.confirm || "",
+        }));
+      } finally {
+        pruneStore.close();
+      }
     } else if (command === "startup install") {
       output(await installStartup(config));
     } else if (command === "startup status") {
