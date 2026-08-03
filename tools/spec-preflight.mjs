@@ -18,6 +18,15 @@ if (changed.length === 0 || changed.some((name) =>
   || name === "tools/spec-preflight.mjs")) {
   specs.add("specs/cli_contract_v1.yaml");
 }
+if (changed.length === 0 || changed.some((name) =>
+  name === "src/cli.mjs"
+  || name === "src/dataset_read_store.mjs"
+  || name === "src/dataset_export.mjs"
+  || name === "test/dataset_export.test.mjs"
+  || name === "specs/dataset_export_contract_v1.yaml"
+  || name === "tools/spec-preflight.mjs")) {
+  specs.add("specs/dataset_export_contract_v1.yaml");
+}
 process.stdout.write(`${JSON.stringify({
   schema: "evidence_service_spec_preflight_v1",
   required_specs: [...specs],
