@@ -51,7 +51,11 @@ test("sample counts and timer milliseconds require safe integers", async (t) => 
     ["pollMs", 1_000.5],
     ["revokeWithinMs", 1_000.5],
     ["pollMs", "1000"],
-    ["revokeWithinMs", Number.POSITIVE_INFINITY],
+    ["revokeWithinMs", null],
+    ["inputIdleMs", -1],
+    ["consecutiveIdleSamples", 101],
+    ["pollMs", 99],
+    ["revokeWithinMs", 2_001],
   ]) {
     await assert.rejects(
       loadWithResources(t, { [name]: value }),
@@ -60,13 +64,24 @@ test("sample counts and timer milliseconds require safe integers", async (t) => 
   }
 });
 
-test("priority process names are bounded executable basenames", async (t) => {
+test("priority process name count is admitted at 64 and rejected at 65", async (t) => {
+  const sixtyFour = Array.from({ length: 64 }, (_, index) => `tool-${index}`);
+  const config = await loadWithResources(t, { priorityProcessNames: sixtyFour });
+  assert.deepEqual(config.resources.priorityProcessNames, sixtyFour);
+
   await assert.rejects(
     loadWithResources(t, {
-      priorityProcessNames: Array.from({ length: 65 }, (_, index) => `tool-${index}`),
+      priorityProcessNames: [...sixtyFour, "tool-64"],
     }),
     /at most 64 executable basenames/,
   );
+});
+
+test("priority process names are bounded executable basenames", async (t) => {
+  const boundary = "x".repeat(128);
+  const config = await loadWithResources(t, { priorityProcessNames: [boundary] });
+  assert.deepEqual(config.resources.priorityProcessNames, [boundary]);
+
   await assert.rejects(
     loadWithResources(t, { priorityProcessNames: ["x".repeat(129)] }),
     /at most 128 characters/,
@@ -77,6 +92,10 @@ test("priority process names are bounded executable basenames", async (t) => {
   );
   await assert.rejects(
     loadWithResources(t, { priorityProcessNames: ["tool one"] }),
+    /executable basenames/,
+  );
+  await assert.rejects(
+    loadWithResources(t, { priorityProcessNames: [""] }),
     /executable basenames/,
   );
 });
