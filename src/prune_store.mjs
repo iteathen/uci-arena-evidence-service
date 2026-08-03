@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 const PRUNE_LOCK_KEY = "prune_operation_lock";
 const PRUNE_HEARTBEAT_KEY = "prune_operation_heartbeat";
 const PRUNE_HEARTBEAT_STALE_MS = 30_000;
+const SHA256 = /^[0-9a-f]{64}$/u;
 
 function safeCount(value, label) {
   const number = Number(value);
@@ -41,10 +42,14 @@ function parseAuditResult(text, auditId) {
 }
 
 function candidateRow(row) {
+  const sha256 = String(row.sha256);
+  if (!SHA256.test(sha256)) {
+    throw new Error(`Evidence prune artifact identity is noncanonical: ${sha256}`);
+  }
   return {
-    sha256: String(row.sha256).toLowerCase(),
+    sha256,
     path: String(row.path),
-    sizeBytes: safeCount(row.size_bytes, `artifact ${row.sha256} size`),
+    sizeBytes: safeCount(row.size_bytes, `artifact ${sha256} size`),
     createdAt: String(row.created_at),
   };
 }
@@ -219,7 +224,10 @@ export class PruneStore {
   candidateStats(cutoff) {
     this.assertOpen();
     const row = this.database.prepare(`
-      SELECT COUNT(*) AS artifact_count,COALESCE(SUM(a.size_bytes),0) AS bytes
+      SELECT
+        COUNT(*) AS artifact_count,
+        COALESCE(SUM(a.size_bytes),0) AS bytes,
+        MIN(a.size_bytes) AS minimum_size
       FROM artifacts a
       WHERE a.created_at < ?
         AND NOT EXISTS (
@@ -228,8 +236,10 @@ export class PruneStore {
           WHERE o.raw_sha256=a.sha256 AND d.state='collecting'
         )
     `).get(cutoff);
+    const artifactCount = safeCount(row.artifact_count, "candidate count");
+    if (artifactCount > 0) safeCount(row.minimum_size, "minimum candidate size");
     return {
-      artifactCount: safeCount(row.artifact_count, "candidate count"),
+      artifactCount,
       bytes: safeCount(row.bytes, "candidate bytes"),
     };
   }
@@ -254,6 +264,7 @@ export class PruneStore {
 
   artifact(sha256) {
     this.assertOpen();
+    if (!SHA256.test(String(sha256))) return null;
     const row = this.database.prepare(`
       SELECT sha256,path,size_bytes,created_at FROM artifacts WHERE sha256=?
     `).get(sha256);
@@ -348,6 +359,9 @@ export class PruneStore {
 
   deleteCandidate(sha256) {
     this.assertOpen();
+    if (!SHA256.test(String(sha256))) {
+      throw new Error(`Evidence prune candidate identity is invalid: ${sha256}`);
+    }
     const observations = this.database.prepare(`
       DELETE FROM observations WHERE raw_sha256=?
     `).run(sha256).changes;
