@@ -54,7 +54,7 @@ const defaults = {
   ),
   gpuIsolationAttestation: process.env.UCI_ARENA_GPU_ISOLATION_ATTESTATION?.trim() || "",
   profileImports: [],
-  restaurantRoots: [],
+  externalOwnerRoots: [],
   resources: {
     minimumFreeWorkspaceGb: 75,
     pauseAvailableMemoryGb: 6,
@@ -94,6 +94,15 @@ function configuredPath(value, directory) {
   return path.isAbsolute(value) ? path.normalize(value) : path.resolve(directory, value);
 }
 
+function configuredExternalOwnerRoots(loaded, fallback) {
+  const canonical = loaded.externalOwnerRoots;
+  const legacy = loaded.restaurantRoots;
+  if (canonical !== undefined && legacy !== undefined) {
+    throw new Error("configure only externalOwnerRoots; the legacy owner-root key cannot be combined with it");
+  }
+  return canonical ?? legacy ?? fallback;
+}
+
 export function assertSupportedNode() {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major < 24 || (major === 24 && minor < 15)) {
@@ -109,6 +118,13 @@ function validate(config) {
         (entry) => typeof entry !== "string" || !entry.trim(),
       )) {
     throw new Error("profileImports must contain at most 64 non-empty file paths");
+  }
+  if (!Array.isArray(config.externalOwnerRoots)
+      || config.externalOwnerRoots.length > 64
+      || config.externalOwnerRoots.some(
+        (entry) => typeof entry !== "string" || !entry.trim(),
+      )) {
+    throw new Error("externalOwnerRoots must contain at most 64 non-empty directory paths");
   }
   const resources = config.resources;
   const numbers = [
@@ -142,7 +158,9 @@ export async function loadConfig({ configFile, workspace } = {}) {
     loaded = JSON.parse(await readFile(filename, "utf8"));
     directory = path.dirname(filename);
   }
+  const ownerRoots = configuredExternalOwnerRoots(loaded, defaults.externalOwnerRoots);
   const config = merge(structuredClone(defaults), loaded);
+  delete config.restaurantRoots;
   config.configFile = configFile ? path.resolve(configFile) : null;
   config.repositoryRoot = runtimeRoot;
   config.runtimeRoot = runtimeRoot;
@@ -161,9 +179,15 @@ export async function loadConfig({ configFile, workspace } = {}) {
   ]) {
     config[key] = configuredPath(config[key], directory);
   }
-  config.restaurantRoots = [...new Set((config.restaurantRoots ?? [])
+  config.externalOwnerRoots = [...new Set(ownerRoots
     .map((root) => configuredPath(root, directory))
     .filter((root) => existsSync(root)))];
+  Object.defineProperty(config, "restaurantRoots", {
+    configurable: false,
+    enumerable: false,
+    value: config.externalOwnerRoots,
+    writable: false,
+  });
   config.profileImports = [...new Set(
     config.profileImports.map((profile) => configuredPath(profile, directory)),
   )];
