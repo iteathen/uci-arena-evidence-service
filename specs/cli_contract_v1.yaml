@@ -54,6 +54,9 @@ limits:
 syntax_rules:
   - Global `--workspace` and `--config` options may appear once anywhere in the
     invocation and require one non-empty following value.
+  - `help` and a bare or command-qualified `--help` display usage without loading
+    configuration, creating a workspace, or opening the catalog.
+  - Help does not excuse an unknown command or accept unrelated command flags.
   - `--help` is a global boolean flag and may appear once.
   - Command boolean flags are `--once` and `--json`; neither accepts a value.
   - Every other admitted flag requires exactly one non-empty following value.
@@ -69,6 +72,7 @@ syntax_rules:
     `12junk` is forbidden.
 
 commands:
+  help: {flags: []}
   init: {flags: []}
   daemon: {flags: [once]}
   status: {flags: [json]}
@@ -127,6 +131,7 @@ commands:
 
 compatibility:
   - Existing command paths and admitted flags remain unchanged.
+  - The positional `help` command remains supported.
   - `profile list --json`, documented by the operator README, remains admitted.
   - Global option placement remains permissive while duplicate authority is not.
   - Existing API response envelopes and service-domain error contracts remain
