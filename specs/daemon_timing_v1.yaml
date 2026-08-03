@@ -37,12 +37,14 @@ canonical_timing:
 
 configuration_compatibility:
   field: daemon
-  required_keys: [heartbeatMs, cycleMs, staleMs]
+  canonical_keys: [heartbeatMs, cycleMs, staleMs]
   rules:
-    - Existing configuration documents may retain the daemon object.
-    - The object must contain only the three canonical keys after default merging.
-    - Every value must exactly equal the canonical value.
-    - Unknown keys, missing keys, non-integers, and changed values fail configuration loading.
+    - Existing configuration documents may retain or omit the daemon object.
+    - Omitted keys normalize to canonical defaults during ordinary configuration merging.
+    - After merging, the projection contains exactly the three canonical keys.
+    - Every projected value must exactly equal the canonical value.
+    - Unknown keys, non-integers, and changed values fail configuration loading.
+    - A partial input containing only canonical values is accepted and normalizes to the complete projection.
     - Future timer configurability requires a new reviewed contract version rather than accidental numeric acceptance.
 
 validation:
@@ -52,4 +54,5 @@ validation:
     - unknown_timing_key_rejected
     - noninteger_timing_rejected
     - configuration_loader_uses_canonical_defaults
+    - configuration_loader_normalizes_partial_canonical_input
     - configuration_loader_rejects_timer_override
