@@ -205,45 +205,67 @@ export class PruneService {
         throw new Error(`unsafe entry in Evidence prune quarantine: ${operation.name}`);
       }
       const operationDirectory = path.join(this.quarantineRoot, operation.name);
-      let restored = 0;
-      let cleaned = 0;
-      const files = await this.fs.readdir(operationDirectory, { withFileTypes: true });
-      for (const entry of files) {
+      const entriesInOperation = await this.fs.readdir(operationDirectory, { withFileTypes: true });
+      const files = [];
+      for (const entry of entriesInOperation) {
         const match = entry.isFile() ? STAGED_ARTIFACT.exec(entry.name) : null;
         if (!match) {
           throw new Error(`unsafe entry in Evidence prune operation ${operation.name}: ${entry.name}`);
         }
         const sha256 = match[1];
-        const stagedPath = path.join(operationDirectory, entry.name);
-        const row = this.store.artifact(sha256);
-        if (row) {
-          const destination = await this.assertCatalogDestination(row, roots, { requireFile: false });
+        files.push({
+          sha256,
+          stagedPath: path.join(operationDirectory, entry.name),
+          row: this.store.artifact(sha256),
+        });
+      }
+      const withRows = files.filter((file) => file.row !== null);
+      const withoutRows = files.filter((file) => file.row === null);
+      if (withRows.length > 0 && withoutRows.length > 0) {
+        throw new Error(`Evidence prune operation ${operation.name} has mixed commit state`);
+      }
+      const audit = this.store.audit(operation.name);
+      if (withRows.length > 0 && audit) {
+        throw new Error(`rolled-back Evidence prune operation ${operation.name} unexpectedly has an audit row`);
+      }
+
+      let restored = 0;
+      let cleaned = 0;
+      if (withRows.length > 0) {
+        const restorePlan = [];
+        for (const file of withRows) {
+          const destination = await this.assertCatalogDestination(
+            file.row,
+            roots,
+            { requireFile: false },
+          );
           if (await exists(destination, this.fs)) {
-            throw new Error(`Evidence prune recovery found both catalog and quarantine files for ${sha256}`);
+            throw new Error(
+              `Evidence prune recovery found both catalog and quarantine files for ${file.sha256}`,
+            );
           }
-          const stagedInfo = await this.fs.lstat(stagedPath);
+          const stagedInfo = await this.fs.lstat(file.stagedPath);
           if (!stagedInfo.isFile() || stagedInfo.isSymbolicLink()
-              || stagedInfo.size !== row.sizeBytes
-              || await this.hashFile(stagedPath) !== sha256) {
-            throw new Error(`Evidence prune recovery artifact ${sha256} is invalid`);
+              || !Number.isSafeInteger(stagedInfo.size)
+              || stagedInfo.size !== file.row.sizeBytes
+              || await this.hashFile(file.stagedPath) !== file.sha256) {
+            throw new Error(`Evidence prune recovery artifact ${file.sha256} is invalid`);
           }
-          await this.fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
-          await this.fs.rename(stagedPath, destination);
+          restorePlan.push({ ...file, destination });
+        }
+        for (const item of restorePlan) {
+          await this.fs.mkdir(path.dirname(item.destination), { recursive: true, mode: 0o700 });
+          await this.fs.rename(item.stagedPath, item.destination);
           ++restored;
-        } else {
-          await this.fs.rm(stagedPath, { force: false });
+        }
+      } else {
+        for (const file of withoutRows) {
+          await this.fs.rm(file.stagedPath, { force: false });
           ++cleaned;
         }
       }
-      if (restored > 0 && cleaned > 0) {
-        throw new Error(`Evidence prune operation ${operation.name} has mixed commit state`);
-      }
       await this.fs.rmdir(operationDirectory);
-      const audit = this.store.audit(operation.name);
-      if (restored > 0 && audit) {
-        throw new Error(`rolled-back Evidence prune operation ${operation.name} unexpectedly has an audit row`);
-      }
-      if (cleaned > 0 && audit?.result?.cleanupPending === true) {
+      if (audit?.result?.cleanupPending === true && restored === 0) {
         this.store.updateAuditResult(operation.name, {
           ...audit.result,
           cleanupPending: false,
