@@ -207,9 +207,13 @@ export function parseCliArguments(argv) {
     if (globals.help) noCommandFlagsForHelp(flags);
     throw new Error(`unknown command: ${command}`);
   }
+  if (globals.help) {
+    noCommandFlagsForHelp(flags);
+    return { help: true, command, globals, flags };
+  }
   validateDefinition(command, flags);
   return {
-    help: command === "help" || Boolean(globals.help),
+    help: command === "help",
     command,
     globals,
     flags,
