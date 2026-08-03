@@ -10,6 +10,14 @@ if (changed.length === 0 || changed.some((name) =>
   /^(src|test|fixtures|contracts|release|tools|package)/u.test(name))) {
   specs.add("specs/uci_arena_evidence_service_v1.yaml");
 }
+if (changed.length === 0 || changed.some((name) =>
+  name === "src/cli.mjs"
+  || name === "src/cli_contract.mjs"
+  || name === "test/cli_contract.test.mjs"
+  || name === "specs/cli_contract_v1.yaml"
+  || name === "tools/spec-preflight.mjs")) {
+  specs.add("specs/cli_contract_v1.yaml");
+}
 process.stdout.write(`${JSON.stringify({
   schema: "evidence_service_spec_preflight_v1",
   required_specs: [...specs],
