@@ -1,0 +1,146 @@
+meta:
+  spec_id: evidence_service_cli_contract_v1
+  version: 1
+  status: active
+  owner: evidence_service_cli
+  purpose: >
+    Define one exact, bounded command grammar for direct operator use and the
+    component-declared Manager CLI-JSON transport without moving service-domain
+    validation into argument parsing.
+
+authority:
+  implementation:
+    parser: src/cli_contract.mjs
+    dispatcher: src/cli.mjs
+  broader_contracts:
+    - specs/uci_arena_evidence_service_v1.yaml
+    - specs/repository_boundary_v1.yaml
+    - contracts/service-contract.json
+  rule: >
+    This specification controls command spelling, argument count, flag
+    admission, value shape, duplicate handling, and bounded JSON/integer parsing.
+    Domain owners remain authoritative for targets, jobs, datasets, profiles,
+    startup behavior, evidence, and resource policy.
+
+ownership:
+  parser_owns:
+    - exact_command_path_selection
+    - exact_positional_arity
+    - global_option_admission
+    - command_specific_flag_allowlists
+    - required_flag_presence
+    - duplicate_flag_rejection
+    - missing_flag_value_rejection
+    - bounded_argument_and_value_size
+    - bounded_json_object_parsing
+    - strict_integer_parsing
+    - small_enumeration_validation
+  parser_must_not_own:
+    - target_identity_or_filesystem_admission
+    - adapter_allowlist_semantics
+    - catalog_state_or_job_transitions
+    - dataset_or_profile_authority
+    - startup_registration
+    - evidence_normalization
+    - manager_response_schema
+
+limits:
+  maximum_argument_count: 128
+  maximum_argument_bytes: 65536
+  maximum_total_argument_bytes: 1048576
+  maximum_json_flag_bytes: 65536
+  integer_priority_range: [-1000000, 1000000]
+
+syntax_rules:
+  - Global `--workspace` and `--config` options may appear once anywhere in the
+    invocation and require one non-empty following value.
+  - `--help` is a global boolean flag and may appear once.
+  - Command boolean flags are `--once` and `--json`; neither accepts a value.
+  - Every other admitted flag requires exactly one non-empty following value.
+  - A value flag may not consume another `--flag` token as its value.
+  - Duplicate global options and duplicate command flags fail closed.
+  - Unknown flags, unknown command paths, and extra positional arguments fail
+    closed instead of being ignored.
+  - `--flag=value`, abbreviated flags, combined short flags, and a free-form
+    `--` passthrough are unsupported.
+  - JSON flags accept only one bounded JSON object; arrays, scalars, null, and
+    duplicate command authority are rejected.
+  - Integer flags require the complete decimal token; prefix parsing such as
+    `12junk` is forbidden.
+
+commands:
+  init: {flags: []}
+  daemon: {flags: [once]}
+  status: {flags: [json]}
+  pause: {flags: [reason]}
+  resume: {flags: []}
+  target_add:
+    path: [target, add]
+    flags: [model-id, model-root, fingerprint, engine, provider, label, hardware-fingerprint, uci-options-json]
+    required: [model-id, model-root, fingerprint, engine, provider]
+  target_list: {path: [target, list], flags: [json]}
+  target_remove: {path: [target, remove], flags: [id], required: [id]}
+  job_enqueue:
+    path: [job, enqueue]
+    flags: [campaign, target, adapter, shard, config-json, priority]
+    conditional_modes:
+      first_campaign:
+        required: {campaign: first}
+        forbidden: [adapter, shard, config-json, priority]
+      manual:
+        required: [adapter, shard]
+        forbidden: [campaign]
+  job_list:
+    path: [job, list]
+    flags: [state, json]
+    state_values: [queued, waiting_for_target, waiting_for_resources, running, completed, failed, cancelled]
+  job_cancel: {path: [job, cancel], flags: [id], required: [id]}
+  job_retry: {path: [job, retry], flags: [id], required: [id]}
+  dataset_list: {path: [dataset, list], flags: [json]}
+  dataset_show: {path: [dataset, show], flags: [id], required: [id]}
+  dataset_export:
+    path: [dataset, export]
+    flags: [id, out, format]
+    required: [id, out]
+    format_values: [json, jsonl]
+  profile_list: {path: [profile, list], flags: [json]}
+  api_describe: {path: [api, describe], flags: []}
+  api_status: {path: [api, status], flags: []}
+  api_outputs_list: {path: [api, outputs, list], flags: [cursor]}
+  api_outputs_inspect: {path: [api, outputs, inspect], flags: [id], required: [id]}
+  api_config_validate: {path: [api, config, validate], flags: []}
+  api_orchestration_status: {path: [api, orchestration, status], flags: []}
+  api_target_register:
+    path: [api, target, register]
+    flags: [model-id, model-root, model-fingerprint, engine, provider, provider-fingerprint, uci-options-json, label]
+    required: [model-id, model-root, model-fingerprint, engine, provider]
+  api_campaign_enqueue: {path: [api, campaign, enqueue], flags: [target]}
+  api_job_control:
+    path: [api, job, control]
+    flags: [id, action]
+    required: [id, action]
+    action_values: [cancel, retry]
+  prune: {flags: [before, confirm], required: [before]}
+  startup_install: {path: [startup, install], flags: []}
+  startup_status: {path: [startup, status], flags: []}
+  startup_uninstall: {path: [startup, uninstall], flags: []}
+
+compatibility:
+  - Existing command paths and admitted flags remain unchanged.
+  - `profile list --json`, documented by the operator README, remains admitted.
+  - Global option placement remains permissive while duplicate authority is not.
+  - Existing API response envelopes and service-domain error contracts remain
+    unchanged after successful syntax admission.
+
+acceptance:
+  required:
+    - every_declared_command_parses
+    - unknown_command_and_extra_positional_rejection
+    - unknown_flag_rejection
+    - duplicate_global_and_command_flag_rejection
+    - missing_or_flag_shaped_value_rejection
+    - command_specific_flag_rejection
+    - campaign_mode_exclusivity_tests
+    - strict_integer_and_json_object_tests
+    - state_format_and_action_enumeration_tests
+    - help_without_catalog_or_configuration_initialization
