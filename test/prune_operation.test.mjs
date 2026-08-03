@@ -38,7 +38,7 @@ async function fixture(t) {
 
 test("metadata prune lease excludes a concurrent live owner and is reacquirable", async (t) => {
   const { first, second } = await fixture(t);
-  let now = 1_000;
+  const now = 1_000;
   const lease = first.acquireOperationLease({
     pid: 101,
     processAliveImpl: (pid) => pid === 101,
@@ -117,13 +117,9 @@ test("lease heartbeat keeps a live owner authoritative", async (t) => {
   lease.release();
 });
 
-function operationFixture({
-  workflow,
-  lease,
-  timerCallback = null,
-} = {}) {
+function operationFixture({ workflow, lease } = {}) {
   const events = [];
-  let intervalCallback = timerCallback;
+  let intervalCallback = null;
   const selectedLease = lease ?? {
     heartbeat() { events.push("heartbeat"); },
     release() { events.push("release"); },
@@ -178,6 +174,44 @@ test("prune operation releases its lease after success and workflow failure", as
   assert.ok(failure.events.includes("clear"));
 });
 
+test("initial heartbeat and timer setup failures still release the lease", async () => {
+  let releasedAfterHeartbeat = false;
+  const heartbeatFailure = new PruneOperation(null, {}, {
+    leaseFactory: async () => ({
+      heartbeat() { throw new Error("initial heartbeat failed"); },
+      release() { releasedAfterHeartbeat = true; },
+    }),
+    workflow: { async run() { assert.fail("workflow must not start"); } },
+    heartbeatIntervalMs: 100,
+  });
+  await assert.rejects(heartbeatFailure.run({}), /initial heartbeat failed/);
+  assert.equal(releasedAfterHeartbeat, true);
+
+  let releasedAfterTimer = false;
+  const timerFailure = new PruneOperation(null, {}, {
+    leaseFactory: async () => ({
+      heartbeat() {},
+      release() { releasedAfterTimer = true; },
+    }),
+    workflow: { async run() { assert.fail("workflow must not start"); } },
+    heartbeatIntervalMs: 100,
+    setIntervalImpl() { throw new Error("timer setup failed"); },
+  });
+  await assert.rejects(timerFailure.run({}), /timer setup failed/);
+  assert.equal(releasedAfterTimer, true);
+});
+
+test("invalid lease cleanup is attempted before rejecting the factory contract", async () => {
+  let released = false;
+  const operation = new PruneOperation(null, {}, {
+    leaseFactory: async () => ({ release() { released = true; } }),
+    workflow: { async run() { assert.fail("workflow must not start"); } },
+    heartbeatIntervalMs: 100,
+  });
+  await assert.rejects(operation.run({}), /invalid lease/);
+  assert.equal(released, true);
+});
+
 test("workflow heartbeat observes an asynchronous lease failure", async () => {
   let calls = 0;
   let trigger = null;
@@ -206,7 +240,7 @@ test("workflow heartbeat observes an asynchronous lease failure", async () => {
   await assert.rejects(operation.run({}), /lease heartbeat failed/);
 });
 
-test("workflow heartbeat and release failures are preserved together", async () => {
+test("workflow timer-cleanup and release failures are all preserved", async () => {
   const operation = new PruneOperation(null, {}, {
     leaseFactory: async () => ({
       heartbeat() {},
@@ -217,7 +251,7 @@ test("workflow heartbeat and release failures are preserved together", async () 
     },
     heartbeatIntervalMs: 100,
     setIntervalImpl() { return { unref() {} }; },
-    clearIntervalImpl() {},
+    clearIntervalImpl() { throw new Error("timer cleanup failed"); },
   });
 
   await assert.rejects(
@@ -225,7 +259,11 @@ test("workflow heartbeat and release failures are preserved together", async () 
     (error) => {
       assert.ok(error instanceof AggregateError);
       assert.match(error.message, /lease lifecycle failed/);
-      assert.equal(error.errors.length, 2);
+      assert.equal(error.errors.length, 3);
+      assert.deepEqual(
+        error.errors.map((entry) => entry.message).sort(),
+        ["release failed", "timer cleanup failed", "workflow failed"],
+      );
       return true;
     },
   );
