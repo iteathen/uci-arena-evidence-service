@@ -94,13 +94,22 @@ function configuredPath(value, directory) {
   return path.isAbsolute(value) ? path.normalize(value) : path.resolve(directory, value);
 }
 
+function validateOwnerRoots(value) {
+  if (!Array.isArray(value)
+      || value.length > 64
+      || value.some((entry) => typeof entry !== "string" || !entry.trim())) {
+    throw new Error("externalOwnerRoots must contain at most 64 non-empty directory paths");
+  }
+  return value;
+}
+
 function configuredExternalOwnerRoots(loaded, fallback) {
   const canonical = loaded.externalOwnerRoots;
   const legacy = loaded.restaurantRoots;
   if (canonical !== undefined && legacy !== undefined) {
     throw new Error("configure only externalOwnerRoots; the legacy owner-root key cannot be combined with it");
   }
-  return canonical ?? legacy ?? fallback;
+  return validateOwnerRoots(canonical ?? legacy ?? fallback);
 }
 
 export function assertSupportedNode() {
@@ -119,13 +128,7 @@ function validate(config) {
       )) {
     throw new Error("profileImports must contain at most 64 non-empty file paths");
   }
-  if (!Array.isArray(config.externalOwnerRoots)
-      || config.externalOwnerRoots.length > 64
-      || config.externalOwnerRoots.some(
-        (entry) => typeof entry !== "string" || !entry.trim(),
-      )) {
-    throw new Error("externalOwnerRoots must contain at most 64 non-empty directory paths");
-  }
+  validateOwnerRoots(config.externalOwnerRoots);
   const resources = config.resources;
   const numbers = [
     ["minimumFreeWorkspaceGb", resources.minimumFreeWorkspaceGb, 1, 100_000],
