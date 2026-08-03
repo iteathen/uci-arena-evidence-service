@@ -24,3 +24,20 @@ export function daemonHeartbeatLiveness(
     heartbeat_age_ms: ageMs,
   };
 }
+
+export function projectDaemonHeartbeatStatus(status, nowMs = Date.now()) {
+  if (!status || typeof status !== "object" || Array.isArray(status)) {
+    throw new Error("Evidence status projection requires an object");
+  }
+  const daemon = status.daemon && typeof status.daemon === "object"
+    && !Array.isArray(status.daemon)
+    ? status.daemon
+    : {};
+  return {
+    ...status,
+    daemon: {
+      ...daemon,
+      ...daemonHeartbeatLiveness(daemon.heartbeatAt, nowMs),
+    },
+  };
+}
