@@ -189,11 +189,10 @@ export class PruneService {
     return failures;
   }
 
-  async cleanupCommitted(operationDirectory, staged) {
+  async cleanupCommittedFiles(staged) {
     for (const item of staged) {
       await this.fs.rm(item.quarantine, { force: false });
     }
-    await this.fs.rmdir(operationDirectory);
   }
 
   async recover() {
@@ -264,7 +263,6 @@ export class PruneService {
           ++cleaned;
         }
       }
-      await this.fs.rmdir(operationDirectory);
       if (audit?.result?.cleanupPending === true && restored === 0) {
         this.store.updateAuditResult(operation.name, {
           ...audit.result,
@@ -272,6 +270,7 @@ export class PruneService {
           quarantine: null,
         });
       }
+      await this.fs.rmdir(operationDirectory);
       ++recovered.operations;
       recovered.restored += restored;
       recovered.cleaned += cleaned;
@@ -374,20 +373,33 @@ export class PruneService {
     }
 
     try {
-      await this.cleanupCommitted(operationDirectory, staged);
-      const completed = {
-        ...result,
-        cleanupPending: false,
-        quarantine: null,
-      };
-      try {
-        this.store.updateAuditResult(operationId, completed);
-        return completed;
-      } catch {
-        return result;
-      }
+      await this.cleanupCommittedFiles(staged);
     } catch {
       return result;
+    }
+    const completed = {
+      ...result,
+      cleanupPending: false,
+      quarantine: null,
+    };
+    try {
+      this.store.updateAuditResult(operationId, completed);
+    } catch {
+      return result;
+    }
+    try {
+      await this.fs.rmdir(operationDirectory);
+      return completed;
+    } catch {
+      const pending = {
+        ...result,
+        cleanupPending: true,
+        quarantine: operationDirectory,
+      };
+      try {
+        this.store.updateAuditResult(operationId, pending);
+      } catch {}
+      return pending;
     }
   }
 }
