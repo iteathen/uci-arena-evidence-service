@@ -1,0 +1,65 @@
+meta:
+  spec_id: evidence_resource_config_v1
+  version: 1
+  status: active
+  owner: resource_admission_configuration
+  purpose: >
+    Admit resource thresholds, sample counts, timer milliseconds, and priority
+    process names in representations that their runtime consumers can use
+    deterministically and without metadata amplification.
+
+authority:
+  parent_specs:
+    - specs/00_READ_FIRST.yaml
+    - specs/repository_boundary_v1.yaml
+    - specs/uci_arena_evidence_service_v1.yaml
+
+ownership:
+  owner: src/config.mjs
+  consumer: src/resource_governor.mjs
+  rules:
+    - Configuration owns syntax, type, range, and list cardinality once.
+    - ResourceGovernor consumes the admitted projection and does not coerce invalid input.
+    - End-to-end foreground revocation budgeting remains a separate lifecycle issue.
+
+continuous_thresholds:
+  fields:
+    - minimumFreeWorkspaceGb
+    - pauseAvailableMemoryGb
+    - maximumUsedMemoryPercent
+    - maximumUsedCpuPercent
+    - maximumGpuUtilPercent
+  rules:
+    - Values are finite numbers within their existing ranges.
+    - Fractional GiB and percentage thresholds are permitted.
+
+integer_controls:
+  fields:
+    inputIdleMs: {minimum: 0, maximum: 86400000}
+    consecutiveIdleSamples: {minimum: 1, maximum: 100}
+    pollMs: {minimum: 100, maximum: 2000}
+    revokeWithinMs: {minimum: 250, maximum: 2000}
+  rules:
+    - Values are safe integers.
+    - Fractional, string, NaN, infinite, and out-of-range values fail configuration loading.
+
+priority_process_names:
+  maximum_count: 64
+  maximum_name_characters: 128
+  grammar: "^[A-Za-z0-9_.-]+$"
+  rules:
+    - The value is an array.
+    - Every entry is a non-empty string within the length bound.
+    - Names are unique under ASCII case folding because process matching is case-insensitive.
+    - Unknown path separators, whitespace, shell syntax, and control characters are rejected.
+
+validation:
+  required:
+    - canonical_defaults_accepted
+    - fractional_continuous_thresholds_accepted
+    - fractional_integer_controls_rejected
+    - string_nan_infinite_integer_controls_rejected
+    - process_name_count_boundary
+    - process_name_length_boundary
+    - case_insensitive_duplicate_process_names_rejected
+    - invalid_process_name_grammar_rejected
