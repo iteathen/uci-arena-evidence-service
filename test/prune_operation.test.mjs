@@ -1,116 +1,232 @@
 import assert from "node:assert/strict";
-import { readFile, utimes, writeFile } from "node:fs/promises";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { acquirePruneLock } from "../src/prune_lock.mjs";
+import { Catalog } from "../src/catalog.mjs";
 import { PruneOperation } from "../src/prune_operation.mjs";
+import { PruneStore } from "../src/prune_store.mjs";
+
+function configFor(root) {
+  return {
+    workspace: root,
+    activeModelPointer: path.join(root, "missing-active-model.json"),
+    paths: {
+      catalog: path.join(root, "catalog.sqlite"),
+      artifacts: path.join(root, "artifacts"),
+      attempts: path.join(root, "attempts"),
+      exports: path.join(root, "exports"),
+      locks: path.join(root, "locks"),
+      profiles: path.join(root, "profiles"),
+    },
+  };
+}
 
 async function fixture(t) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-prune-lock-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-prune-lease-"));
+  const config = configFor(root);
+  const catalog = new Catalog(config);
+  const first = new PruneStore(config.paths.catalog);
+  const second = new PruneStore(config.paths.catalog);
+  t.after(() => second.close());
+  t.after(() => first.close());
+  t.after(() => catalog.close());
   t.after(() => rm(root, { recursive: true, force: true }));
-  return { root, locks: path.join(root, "locks") };
+  return { root, config, catalog, first, second };
 }
 
-test("prune lock excludes concurrent owners and is reacquirable after release", async (t) => {
-  const { locks } = await fixture(t);
-  const release = await acquirePruneLock(locks);
+test("metadata prune lease excludes a concurrent live owner and is reacquirable", async (t) => {
+  const { first, second } = await fixture(t);
+  let now = 1_000;
+  const lease = first.acquireOperationLease({
+    pid: 101,
+    processAliveImpl: (pid) => pid === 101,
+    nowMs: () => now,
+  });
 
-  await assert.rejects(
-    acquirePruneLock(locks),
-    /another Evidence prune operation owns/,
+  assert.throws(
+    () => second.acquireOperationLease({
+      pid: 202,
+      processAliveImpl: (pid) => pid === 101,
+      nowMs: () => now + 1,
+    }),
+    /another Evidence prune operation is active/,
   );
 
-  await release();
-  const releaseAgain = await acquirePruneLock(locks);
-  await releaseAgain();
+  lease.release();
+  const replacement = second.acquireOperationLease({
+    pid: 202,
+    processAliveImpl: () => true,
+    nowMs: () => now + 2,
+  });
+  replacement.release();
 });
 
-test("dead stale prune locks are recovered but live owners remain authoritative", async (t) => {
-  const { locks } = await fixture(t);
-  const filename = path.join(locks, "prune.lock");
-  await fsMkdir(locks);
-  await writeFile(filename, `${JSON.stringify({
-    schema: "uci_arena_evidence_prune_lock_v1",
-    pid: 2_147_483_647,
-    nonce: "stale",
-    started_at: "2020-01-01T00:00:00.000Z",
-  })}\n`, "utf8");
-  const old = new Date(Date.now() - 60_000);
-  await utimes(filename, old, old);
-  const release = await acquirePruneLock(locks);
-  await release();
+test("dead or stale prune leases are replaced transactionally", async (t) => {
+  const { first, second } = await fixture(t);
+  let now = 1_000;
+  const dead = first.acquireOperationLease({
+    pid: 101,
+    processAliveImpl: () => false,
+    nowMs: () => now,
+  });
+  now += 1;
+  const takeover = second.acquireOperationLease({
+    pid: 202,
+    processAliveImpl: () => false,
+    nowMs: () => now,
+  });
+  assert.throws(dead.heartbeat, /ownership changed during heartbeat/);
+  assert.throws(dead.release, /ownership changed before release/);
+  takeover.release();
 
-  await writeFile(filename, `${JSON.stringify({
-    schema: "uci_arena_evidence_prune_lock_v1",
-    pid: process.pid,
-    nonce: "live",
-    started_at: "2020-01-01T00:00:00.000Z",
-  })}\n`, "utf8");
-  await utimes(filename, old, old);
-  await assert.rejects(
-    acquirePruneLock(locks),
-    /another Evidence prune operation owns/,
+  const liveButStale = first.acquireOperationLease({
+    pid: 303,
+    processAliveImpl: () => true,
+    nowMs: () => 10_000,
+  });
+  const staleTakeover = second.acquireOperationLease({
+    pid: 404,
+    processAliveImpl: (pid) => pid === 303,
+    nowMs: () => 50_001,
+  });
+  assert.throws(liveButStale.heartbeat, /ownership changed during heartbeat/);
+  staleTakeover.release();
+});
+
+test("lease heartbeat keeps a live owner authoritative", async (t) => {
+  const { first, second } = await fixture(t);
+  let now = 1_000;
+  const lease = first.acquireOperationLease({
+    pid: 101,
+    processAliveImpl: (pid) => pid === 101,
+    nowMs: () => now,
+  });
+  now = 25_000;
+  lease.heartbeat();
+  now = 40_000;
+  assert.throws(
+    () => second.acquireOperationLease({
+      pid: 202,
+      processAliveImpl: (pid) => pid === 101,
+      nowMs: () => now,
+    }),
+    /another Evidence prune operation is active/,
   );
+  lease.release();
 });
 
-async function fsMkdir(directory) {
-  const { mkdir } = await import("node:fs/promises");
-  await mkdir(directory, { recursive: true });
-}
-
-test("prune operation releases its lock after success and workflow failure", async (t) => {
-  const { locks } = await fixture(t);
+function operationFixture({
+  workflow,
+  lease,
+  timerCallback = null,
+} = {}) {
   const events = [];
-  const lockFactory = async (directory) => {
-    events.push(["acquire", directory]);
-    return async () => { events.push(["release", directory]); };
+  let intervalCallback = timerCallback;
+  const selectedLease = lease ?? {
+    heartbeat() { events.push("heartbeat"); },
+    release() { events.push("release"); },
   };
-  const success = new PruneOperation(null, { paths: { locks } }, {
-    lockFactory,
-    workflow: { async run(input) { events.push(["run", input]); return { ok: true }; } },
+  const operation = new PruneOperation(null, {}, {
+    leaseFactory: async () => {
+      events.push("acquire");
+      return selectedLease;
+    },
+    workflow: workflow ?? {
+      async run(input) {
+        events.push("run");
+        input.heartbeat();
+        return { ok: true };
+      },
+    },
+    heartbeatIntervalMs: 100,
+    setIntervalImpl(callback) {
+      intervalCallback = callback;
+      return { unref() { events.push("unref"); } };
+    },
+    clearIntervalImpl() { events.push("clear"); },
   });
-  assert.deepEqual(await success.run({ before: "cutoff" }), { ok: true });
-  assert.deepEqual(events.map(([event]) => event), ["acquire", "run", "release"]);
+  return {
+    operation,
+    events,
+    interval: () => intervalCallback?.(),
+  };
+}
 
-  events.length = 0;
-  const failure = new PruneOperation(null, { paths: { locks } }, {
-    lockFactory,
-    workflow: { async run() { events.push(["run"]); throw new Error("workflow failed"); } },
+test("prune operation releases its lease after success and workflow failure", async () => {
+  const success = operationFixture();
+  assert.deepEqual(await success.operation.run({ before: "cutoff" }), { ok: true });
+  assert.deepEqual(success.events, [
+    "acquire",
+    "heartbeat",
+    "unref",
+    "run",
+    "heartbeat",
+    "heartbeat",
+    "clear",
+    "release",
+  ]);
+
+  const failure = operationFixture({
+    workflow: {
+      async run() { throw new Error("workflow failed"); },
+    },
   });
-  await assert.rejects(failure.run({}), /workflow failed/);
-  assert.deepEqual(events.map(([event]) => event), ["acquire", "run", "release"]);
+  await assert.rejects(failure.operation.run({}), /workflow failed/);
+  assert.ok(failure.events.includes("release"));
+  assert.ok(failure.events.includes("clear"));
 });
 
-test("workflow and lock-release failures are preserved together", async (t) => {
-  const { locks } = await fixture(t);
-  const operation = new PruneOperation(null, { paths: { locks } }, {
-    lockFactory: async () => async () => { throw new Error("release failed"); },
-    workflow: { async run() { throw new Error("workflow failed"); } },
+test("workflow heartbeat observes an asynchronous lease failure", async () => {
+  let calls = 0;
+  let trigger = null;
+  const operation = new PruneOperation(null, {}, {
+    leaseFactory: async () => ({
+      heartbeat() {
+        ++calls;
+        if (calls >= 2) throw new Error("lease heartbeat failed");
+      },
+      release() {},
+    }),
+    workflow: {
+      async run({ heartbeat }) {
+        trigger();
+        heartbeat();
+      },
+    },
+    heartbeatIntervalMs: 100,
+    setIntervalImpl(callback) {
+      trigger = callback;
+      return { unref() {} };
+    },
+    clearIntervalImpl() {},
+  });
+
+  await assert.rejects(operation.run({}), /lease heartbeat failed/);
+});
+
+test("workflow heartbeat and release failures are preserved together", async () => {
+  const operation = new PruneOperation(null, {}, {
+    leaseFactory: async () => ({
+      heartbeat() {},
+      release() { throw new Error("release failed"); },
+    }),
+    workflow: {
+      async run() { throw new Error("workflow failed"); },
+    },
+    heartbeatIntervalMs: 100,
+    setIntervalImpl() { return { unref() {} }; },
+    clearIntervalImpl() {},
   });
 
   await assert.rejects(
     operation.run({}),
     (error) => {
       assert.ok(error instanceof AggregateError);
-      assert.match(error.message, /both failed/);
+      assert.match(error.message, /lease lifecycle failed/);
       assert.equal(error.errors.length, 2);
       return true;
     },
-  );
-});
-
-test("lock release refuses to remove a file whose ownership changed", async (t) => {
-  const { locks } = await fixture(t);
-  const filename = path.join(locks, "prune.lock");
-  const release = await acquirePruneLock(locks);
-  const owner = JSON.parse(await readFile(filename, "utf8"));
-  await writeFile(filename, `${JSON.stringify({ ...owner, nonce: "substituted" })}\n`, "utf8");
-
-  await assert.rejects(
-    release(),
-    /lock ownership changed before release/,
   );
 });
