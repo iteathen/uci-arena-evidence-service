@@ -157,7 +157,7 @@ observation_envelope:
 resource_coordination:
   lease_schema: uci_arena_background_resource_lease_v1
   scope: host_account_global_os_temp
-  priority: [foreground_restaurant_or_arena, heavy_background_fifo]
+  priority: [foreground_compute_owner_or_uci_arena, heavy_background_fifo]
   background_producers: [uci_arena_evidence_service, book_forge]
   courtesy_book_forge_work: [acquisition, status, integration_publication, qualified_publication]
   heavy_book_forge_work: [stockfish_analysis, ingestion_and_maintenance]
@@ -175,7 +175,7 @@ resource_coordination:
   hard_stops:
     - operator_pause
     - foreground_lease_request
-    - restaurant_owner_active
+    - foreground_compute_owner_active
     - unowned_uci_arena_process
     - configured_priority_process
     - battery_or_battery_saver
@@ -317,7 +317,7 @@ validation:
     - audited_prune_tests
     - idle_daemon_cpu_below_one_percent
     - idle_daemon_rss_at_most_150_mib
-    - foreground_training_and_match_regression_at_most_two_percent
+    - foreground_compute_and_match_regression_at_most_two_percent
     - windows_task_scheduler_contract_test
     - linux_systemd_user_unit_contract_test
     - startup_install_active_and_current_configuration_contract_tests
@@ -352,7 +352,7 @@ relocatable_install:
     - "An absent runtime remains a healthy state while no job is runnable; an absent, malformed, mismatched, or escaping runtime contract fails the job before subprocess creation."
     - "Startup registrations use packageRoot as WorkingDirectory."
     - "Engine, Stockfish, model, referee, and runner locations remain explicit typed configuration."
-    - "Restaurant locations are detection-only and are never inferred from the installed component parent."
+    - "External compute-owner locations are detection-only and are never inferred from the installed component parent."
 
 provider_release_reproducibility_2026_08_01:
   status: active
