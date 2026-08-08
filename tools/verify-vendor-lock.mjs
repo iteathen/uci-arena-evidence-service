@@ -60,7 +60,7 @@ if (process.argv.includes("--write")) {
   writeFileSync(lockPath, `${JSON.stringify({
     schema: "uci_arena_upstream_vendor_lock_v1",
     source_repository: "iteathen/UCI_Arena",
-    source_commit: "d22fbde69a2de9b004c2a861bee3f5c4049d0287",
+    source_commit: "1ee19a5c388a4528cb667bc4a89cde6e326919af",
     packages: {
       "@uci-arena/background-service-runtime": "1.0.2",
       "@uci-arena/time-profile-contract": "1.2.0",
@@ -74,7 +74,7 @@ if (process.argv.includes("--write")) {
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 if (lock.schema !== "uci_arena_upstream_vendor_lock_v1"
     || lock.source_repository !== "iteathen/UCI_Arena"
-    || lock.source_commit !== "d22fbde69a2de9b004c2a861bee3f5c4049d0287"
+    || lock.source_commit !== "1ee19a5c388a4528cb667bc4a89cde6e326919af"
     || lock.packages?.["@uci-arena/background-service-runtime"] !== "1.0.2"
     || lock.packages?.["@uci-arena/time-profile-contract"] !== "1.2.0"
     || Object.keys(lock.packages ?? {}).length !== 2
