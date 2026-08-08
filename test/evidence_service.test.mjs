@@ -40,6 +40,10 @@ import {
 import { listQualifiedProfiles } from "../src/profiles.mjs";
 import { ResourceGovernor } from "../src/resource_governor.mjs";
 
+const runtimeIntegrationRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT?.trim()
+  ? path.resolve(process.env.UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT)
+  : repositoryRoot;
+
 async function workspace() {
   const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-test-"));
   const config = await loadConfig({ workspace: root });
@@ -920,7 +924,7 @@ test("Node paired adapter normalizes only a complete reversed-color pair as stre
 test("Node clocked runner preserves manifest, clocks, colors, telemetry, and resume", async (t) => {
   const config = await workspace();
   closeWorkspaceAfter(t, config);
-  const runner = path.join(repositoryRoot, "arena", "run_sprt_match.mjs");
+  const runner = path.join(runtimeIntegrationRoot, "arena", "run_sprt_match.mjs");
   if (!existsSync(runner)) {
     t.skip("requires the pinned uci_arena_evidence.runtime component");
     return;

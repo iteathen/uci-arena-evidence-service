@@ -362,6 +362,7 @@ relocatable_install:
     - "Startup registrations use packageRoot as WorkingDirectory."
     - "Engine, Stockfish, model, referee, and runner locations remain explicit typed configuration."
     - "Restaurant locations are detection-only and are never inferred from the installed component parent."
+    - "The opt-in source integration test receives an explicit test-only Evidence Runtime root. It must not repurpose UCI_ARENA_EVIDENCE_RUNTIME_ROOT or alter the production precedence between invocation override, installed configuration, and development default."
 
 provider_release_reproducibility_2026_08_01:
   status: active

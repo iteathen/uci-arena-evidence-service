@@ -180,3 +180,18 @@ startup removal, and default uninstall preserve this workspace. Audited prune
 is the only ordinary service operation that removes retained evidence; an
 explicit installer data-removal choice is required to remove the complete
 workspace.
+
+## Local validation
+
+`npm run check` leaves the Engine-owned clocked-runner integration test skipped
+when no Evidence Runtime component is available. To exercise an exact local
+runtime without changing production configuration precedence, set only the
+test input for that command:
+
+```powershell
+$env:UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT = "C:\path\to\uci_arena_evidence.runtime"
+npm run check
+```
+
+`UCI_ARENA_EVIDENCE_RUNTIME_ROOT` remains the production invocation override
+and is intentionally not used as a test-fixture selector.
