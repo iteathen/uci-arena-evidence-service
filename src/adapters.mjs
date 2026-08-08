@@ -1,19 +1,26 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import {
+  canonicalJson,
+  validateStoredProfile,
+} from "@uci-arena/time-profile-contract";
 import { targetIdentity } from "./identity.mjs";
 import { validateRuntimeContract } from "./runtime_contract.mjs";
+import { timingProfileCanPublish } from "./time_profile_policy.mjs";
 
 const OUTPUT_SCHEMAS = Object.freeze({
-  timing_profile: new Set(["uci_time_profile_v3"]),
+  timing_profile: new Set(["uci_time_profile_attempt_v3", "uci_time_profile_v3"]),
   paired_sprt: new Set(["uci_arena_paired_sprt_v2"]),
   complete_game: new Set(["uci_arena_complete_game_matrix_v3"]),
 });
@@ -253,7 +260,13 @@ export function adapterCommand(job, target, config, attemptDirectory) {
       executable: process.execPath,
       args,
       environment,
-      outputs: [{ filename: candidate, kind: "json" }],
+      outputs: [
+        { filename: candidate, kind: "json" },
+        {
+          filename: path.join(jobWorkspace, "uci_time_profile_attempts"),
+          kind: "json-directory",
+        },
+      ],
     };
   }
   if (job.adapter === "paired_sprt") {
@@ -439,6 +452,22 @@ function readOutputs(outputs) {
   const entries = [];
   for (const output of outputs) {
     if (!existsSync(output.filename)) continue;
+    if (output.kind === "json-directory") {
+      const directory = lstatSync(output.filename);
+      if (!directory.isDirectory() || directory.isSymbolicLink()) {
+        throw new Error(`adapter output directory is not an owned regular directory: ${output.filename}`);
+      }
+      const filenames = readdirSync(output.filename, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && !entry.isSymbolicLink()
+          && entry.name.endsWith(".json"))
+        .map((entry) => path.join(output.filename, entry.name))
+        .sort((left, right) => left.localeCompare(right));
+      for (const filename of filenames) {
+        const bytes = readFileSync(filename);
+        entries.push({ record: JSON.parse(bytes.toString("utf8")), raw: bytes });
+      }
+      continue;
+    }
     const bytes = readFileSync(output.filename);
     if (output.kind === "json") {
       entries.push({ record: JSON.parse(bytes.toString("utf8")), raw: bytes });
@@ -515,6 +544,124 @@ function validateSourceIdentity(job, record, records, target) {
       target.provider,
       "timing profile provider",
     );
+    const search = record.identity?.search;
+    const value = job.config ?? {};
+    const searchCore = String(targetOption(target, "SearchCore", value.searchCore ?? "legacy"));
+    requireEqual(search?.search_core, searchCore, "timing profile search core");
+    requireEqual(
+      search?.threads,
+      topologyInteger(target, value.threads, "Threads", 1, 1, 512, "threads"),
+      "timing profile threads",
+    );
+    requireEqual(
+      search?.root_workers,
+      topologyInteger(target, value.rootWorkers, "RootWorkers", 0, 0, 512, "rootWorkers"),
+      "timing profile root workers",
+    );
+    requireEqual(
+      search?.split_depth,
+      topologyInteger(target, value.splitDepth, "V2SplitDepth", 5, 1, 64, "splitDepth"),
+      "timing profile split depth",
+    );
+    requireEqual(
+      search?.batch_size_configured,
+      topologyInteger(target, value.batchSize, "NNBatchSize", 0, 0, 256, "batchSize"),
+      "timing profile batch size",
+    );
+    requireEqual(
+      search?.batch_wait_us_configured,
+      topologyInteger(target, value.batchWaitUs, "NNBatchWaitUs", 0, 0, 2_000, "batchWaitUs"),
+      "timing profile batch wait",
+    );
+    requireEqual(
+      search?.provider_requested,
+      target.provider,
+      "timing profile requested provider",
+    );
+    requireEqual(
+      search?.background_search,
+      topologyBoolean(target, "BackgroundSearch", false),
+      "timing profile background search",
+    );
+    requireEqual(
+      search?.nn_speculation,
+      topologyBoolean(target, "NNSpeculation", false),
+      "timing profile neural speculation",
+    );
+    requireEqual(search?.opening_book, false, "timing profile opening book");
+    requireEqual(search?.iterative_time_controller, false, "timing profile controller");
+    if (searchCore === "mcgs") {
+      requireEqual(search?.mcgs?.time_policy, "RelativeClockTemporalV1", "timing profile policy");
+      requireEqual(
+        search?.mcgs?.search_graph_mb,
+        topologyInteger(
+          target,
+          value.searchGraphMb,
+          "SearchGraphMB",
+          512,
+          64,
+          4_096,
+          "searchGraphMb",
+        ),
+        "timing profile graph size",
+      );
+      requireEqual(
+        search?.mcgs?.cpuct_permille,
+        topologyInteger(
+          target,
+          value.mcgsCpuctPermille,
+          "McgsCpuctPermille",
+          1_500,
+          100,
+          10_000,
+          "mcgsCpuctPermille",
+        ),
+        "timing profile Cpuct",
+      );
+      requireEqual(
+        search?.mcgs?.outstanding_batches,
+        topologyInteger(
+          target,
+          value.mcgsOutstandingBatches,
+          "McgsOutstandingBatches",
+          2,
+          1,
+          4,
+          "mcgsOutstandingBatches",
+        ),
+        "timing profile outstanding batches",
+      );
+      requireEqual(
+        search?.mcgs?.book_prior_blend_permille,
+        topologyInteger(
+          target,
+          value.mcgsBookPriorBlendPermille,
+          "McgsBookPriorBlendPermille",
+          250,
+          0,
+          500,
+          "mcgsBookPriorBlendPermille",
+        ),
+        "timing profile book-prior blend",
+      );
+    }
+    const expectedExtraOptions = Object.fromEntries(mergeOptions(
+      targetOptionEntries(target).filter(
+        (option) => !QUALIFIER_OWNED_OPTIONS.has(option.slice(0, option.indexOf("="))),
+      ),
+      value.engineOptions ?? [],
+    ).map((option) => {
+      const separator = option.indexOf("=");
+      return [option.slice(0, separator), option.slice(separator + 1)];
+    }));
+    const actualExtraOptions = search?.extra_engine_options;
+    if (!actualExtraOptions || typeof actualExtraOptions !== "object"
+        || Array.isArray(actualExtraOptions)
+        || canonicalJson(Object.fromEntries(Object.entries(actualExtraOptions).map(
+          ([name, optionValue]) => [name, String(optionValue)],
+        ))) !== canonicalJson(expectedExtraOptions)) {
+      throw new Error("timing profile extra UCI options do not match the requested target");
+    }
     if (target.hardwareDriverFingerprint) {
       requireEqual(
         record.identity?.provider?.hardware_driver_fingerprint,
@@ -562,6 +709,7 @@ function validateSourceIdentity(job, record, records, target) {
 
 function validateAdapterRecords(job, records, target) {
   if (records.length === 0) throw new Error("adapter produced no recognized artifacts");
+  const producerFailures = [];
   for (const record of records) {
     const sourceSchema = String(record?.schema ?? "");
     if (!OUTPUT_SCHEMAS[job.adapter]?.has(sourceSchema)) {
@@ -578,8 +726,16 @@ function validateAdapterRecords(job, records, target) {
         `adapter ${job.adapter} reported failure: ${failures.join("; ")}`,
       );
     }
+    if (record.schema === "uci_time_profile_attempt_v3"
+        && typeof record.error === "string" && record.error.trim()) {
+      producerFailures.push(record.error.trim().slice(0, 2_048));
+      if (record.identity) validateSourceIdentity(job, record, records, target);
+      continue;
+    }
     validateSourceIdentity(job, record, records, target);
+    if (record.schema === "uci_time_profile_v3") validateStoredProfile(record);
   }
+  return producerFailures;
 }
 
 function authorityFor(job, record, records, resource) {
@@ -594,10 +750,13 @@ function authorityFor(job, record, records, resource) {
     timing = timing && record?.qualified === true && record?.gates?.passed === true;
     profilePublication = timing
       && resource?.default_tuning_authority === true
-      && record?.permissions?.provider_safety_qualified === true
-      && record?.permissions?.adaptive_play_qualified === false;
+      && timingProfileCanPublish(record);
     strength = false;
-    if (!profilePublication) reasons.push("timing_profile_publication_gates_not_complete");
+    if (record?.schema === "uci_time_profile_attempt_v3") {
+      reasons.push("timing_profile_attempt_is_diagnostic_only");
+    } else if (!profilePublication) {
+      reasons.push("timing_profile_publication_gates_not_complete");
+    }
   } else if (job.adapter === "complete_game") {
     strength = false;
     reasons.push("complete_game_matrix_is_diagnostic_only");
@@ -736,7 +895,7 @@ function outcomeFor(record) {
   return {
     result: record.result ?? null,
     termination: record.termination ?? null,
-    failure: record.failure ?? null,
+    failure: record.failure ?? record.error ?? null,
     qualified: record.qualified ?? null,
     gates: record.gates ?? null,
     status: record.status ?? null,
@@ -746,7 +905,7 @@ function outcomeFor(record) {
 export function harvestAdapter(job, target, command, config, catalog, resource) {
   const entries = readOutputs(command.outputs);
   const records = entries.map((entry) => entry.record);
-  validateAdapterRecords(job, records, target);
+  const producerFailures = validateAdapterRecords(job, records, target);
   const envelopes = [];
   for (const { record, raw } of entries) {
     const sourceSchema = String(record?.schema ?? "");
@@ -777,7 +936,7 @@ export function harvestAdapter(job, target, command, config, catalog, resource) 
     catalog.addObservation(envelope);
     envelopes.push(envelope);
   }
-  return { records, envelopes };
+  return { records, envelopes, producerFailures };
 }
 
 export function profileCandidate(records) {

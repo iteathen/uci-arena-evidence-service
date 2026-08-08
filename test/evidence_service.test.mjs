@@ -137,6 +137,108 @@ function resourceAuthority() {
   };
 }
 
+function currentTimingGates(searchCore = "mcgs") {
+  const gates = Object.fromEntries([
+    "legal_moves",
+    "nonterminal_null_moves",
+    "controller_disabled",
+    "provider_timing_captured",
+    "provider_service_reserve_valid",
+    "applied_provider_service_reserve_covered",
+    "applied_backup_emit_reserve_covered",
+    "p99_deadline_overshoot_passed",
+    "maximum_deadline_overshoot_passed",
+    "passed",
+  ].map((name) => [name, true]));
+  if (searchCore === "mcgs") {
+    for (const name of [
+      "mcgs_root_coverage_passed",
+      "mcgs_policy_only_fallback_passed",
+      "mcgs_graph_population_passed",
+      "mcgs_async_overlap_passed",
+      "mcgs_single_owner_passed",
+      "mcgs_low_budget_fallback_passed",
+      "mcgs_deterministic_fallback_passed",
+      "mcgs_completion_integrity_passed",
+      "mcgs_temporal_policy_passed",
+      "mcgs_deadline_tail_telemetry_passed",
+    ]) gates[name] = true;
+  }
+  return gates;
+}
+
+function timingProfileFixture(target, { permissions = undefined } = {}) {
+  const options = target.uciOptions ?? {};
+  const searchCore = String(options.SearchCore ?? "mcgs");
+  const identity = {
+    time_policy_version: "persistent_mcgs_relative_clock_temporal_v4",
+    engine: {
+      executable_sha256: `sha256:${target.engineSha256}`,
+      engine_build_fingerprint: `sha256:${"b".repeat(64)}`,
+    },
+    model: {
+      model_id: target.modelId,
+      model_fingerprint: String(target.modelFingerprint),
+    },
+    provider: {
+      provider_numeric_fingerprint: "101",
+      hardware_driver_fingerprint: target.hardwareDriverFingerprint || "202",
+      onnx_runtime_version: "1.24.4",
+    },
+    search: {
+      provider_requested: target.provider,
+      provider_effective: target.provider,
+      search_core: searchCore,
+      threads: Number(options.Threads ?? 3),
+      root_workers: Number(options.RootWorkers ?? 1),
+      split_depth: Number(options.V2SplitDepth ?? 2),
+      batch_size_configured: Number(options.NNBatchSize ?? 32),
+      batch_size_effective: Number(options.NNBatchSize ?? 32),
+      batch_wait_us_configured: Number(options.NNBatchWaitUs ?? 150),
+      batch_wait_us_effective: Number(options.NNBatchWaitUs ?? 150),
+      background_search: false,
+      nn_speculation: false,
+      opening_book: false,
+      iterative_time_controller: false,
+      extra_engine_options: {},
+      mcgs: {
+        time_policy: "RelativeClockTemporalV1",
+        search_graph_mb: Number(options.SearchGraphMB ?? 64),
+        cpuct_permille: Number(options.McgsCpuctPermille ?? 1500),
+        outstanding_batches: Number(options.McgsOutstandingBatches ?? 2),
+        book_prior_blend_permille: Number(options.McgsBookPriorBlendPermille ?? 0),
+      },
+    },
+  };
+  return {
+    schema: "uci_time_profile_v3",
+    qualified: true,
+    published_at: "2026-08-08T00:00:00.000Z",
+    identity,
+    identity_sha256: `sha256:${createHash("sha256")
+      .update(canonicalJson(identity)).digest("hex")}`,
+    qualification: { repetitions_per_case: 30 },
+    ...(permissions === undefined ? {} : { permissions }),
+    predictive_controller: {
+      default_enabled: false,
+      enabled_by_profile: false,
+    },
+    gates: currentTimingGates(searchCore),
+    calibration: {
+      provider_batch_reserve_us: 1000,
+      backup_emit_reserve_us: 1000,
+      iteration_forecast_scale_permille: 1000,
+    },
+    applicability: {
+      move_overhead_ms: {
+        minimum: 250,
+        maximum: 1500,
+        tested_values: [250, 650, 700, 1500],
+      },
+    },
+  };
+}
+
 function runCommand(executable, args, options = {}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(executable, args, {
@@ -299,6 +401,30 @@ test("timing adapter projects the exact MCGS topology without legacy policy inje
   assert.match(joined, /--mcgs-book-prior-blend-permille 200/);
   assert.doesNotMatch(joined, /RelativeClockV3|TimePolicy=/);
 
+  mkdirSync(path.dirname(command.outputs[0].filename), { recursive: true });
+  const profile = timingProfileFixture(target);
+  writeFileSync(command.outputs[0].filename, JSON.stringify(profile));
+  const harvested = harvestAdapter(
+    job,
+    target,
+    command,
+    config,
+    catalog,
+    resourceAuthority(),
+  );
+  assert.equal(harvested.envelopes.length, 1);
+  assert.equal(harvested.envelopes[0].authority.profile_publication, true);
+
+  const drifted = structuredClone(profile);
+  drifted.identity.search.threads = 4;
+  drifted.identity_sha256 = `sha256:${createHash("sha256")
+    .update(canonicalJson(drifted.identity)).digest("hex")}`;
+  writeFileSync(command.outputs[0].filename, JSON.stringify(drifted));
+  assert.throws(
+    () => harvestAdapter(job, target, command, config, catalog, resourceAuthority()),
+    /timing profile threads expected "3" got "4"/,
+  );
+
   const invalidTarget = {
     ...target,
     uciOptions: { ...target.uciOptions, McgsTimePolicy: "Legacy" },
@@ -307,6 +433,67 @@ test("timing adapter projects the exact MCGS topology without legacy policy inje
     () => adapterCommand(job, invalidTarget, config, path.join(config.workspace, "invalid")),
     /McgsTimePolicy must be RelativeClockTemporalV1/,
   );
+});
+
+test("timing adapter retains a failed qualifier attempt as diagnostic-only evidence", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const target = catalog.addTarget(targetFixture(config));
+  const datasetId = catalog.createDataset({ campaign: "timing-failure" });
+  const job = catalog.enqueueJob({
+    adapter: "timing_profile",
+    targetId: target.id,
+    shardId: "timing-failure",
+    datasetId,
+    config: { repetitions: 30 },
+    fingerprint: jobFingerprint({ test: "timing-failure-artifact" }),
+  });
+  const command = adapterCommand(
+    job,
+    target,
+    config,
+    path.join(config.paths.attempts, job.id, "0001"),
+  );
+  assert.equal(command.outputs[0].kind, "json");
+  assert.equal(command.outputs[1].kind, "json-directory");
+  assert.match(command.args.join(" "), /--publication-mode candidate/);
+  assert.match(command.args.join(" "), /--checkpoint .*uci_time_profile_checkpoint\.json/);
+  assert.ok(command.args.includes("--resume"));
+
+  mkdirSync(command.outputs[1].filename, { recursive: true });
+  const producerError = "forced_response repetition 0 produced illegal bestmove a2a3";
+  writeFileSync(path.join(command.outputs[1].filename, "rejected.json"), JSON.stringify({
+    schema: "uci_time_profile_attempt_v3",
+    phase: "diagnostic",
+    outcome: "rejected",
+    recorded_at: "2026-08-08T00:00:00.000Z",
+    identity: null,
+    gates: null,
+    calibration: null,
+    error: producerError,
+    samples: [],
+    failed_samples: [{ case_id: "forced_response", error: producerError }],
+  }));
+  const harvested = harvestAdapter(
+    job,
+    target,
+    command,
+    config,
+    catalog,
+    resourceAuthority(),
+  );
+  assert.deepEqual(harvested.producerFailures, [producerError]);
+  assert.equal(harvested.envelopes.length, 1);
+  assert.equal(harvested.envelopes[0].authority.diagnostic, true);
+  assert.equal(harvested.envelopes[0].authority.timing, false);
+  assert.equal(harvested.envelopes[0].authority.profile_publication, false);
+  assert.match(
+    harvested.envelopes[0].authority.reasons.join(","),
+    /attempt_is_diagnostic_only/,
+  );
+  assert.equal(harvested.envelopes[0].outcome.failure, producerError);
+  assert.equal(catalog.dataset(datasetId).observationCount, 1);
 });
 
 test("complete-game adapter keeps deterministic topology activation separate from deadline probing", async (t) => {
@@ -911,21 +1098,7 @@ test("profile publication is atomic, identity-scoped, archived, and authority-ga
   );
   mkdirSync(path.dirname(live), { recursive: true });
   writeFileSync(live, `${JSON.stringify({ schema: "uci_time_profile_v3", prior: true })}\n`);
-  const candidate = {
-    schema: "uci_time_profile_v3",
-    qualified: true,
-    gates: { passed: true },
-    permissions: {
-      provider_safety_qualified: true,
-      adaptive_play_qualified: false,
-    },
-    identity: {
-      model: {
-        model_id: target.modelId,
-        model_fingerprint: target.modelFingerprint,
-      },
-    },
-  };
+  const candidate = timingProfileFixture(target);
   const resource = resourceAuthority();
   resource.default_tuning_authority = true;
   const publication = await publishQualifiedProfile({
@@ -938,6 +1111,8 @@ test("profile publication is atomic, identity-scoped, archived, and authority-ga
   assert.equal(publication.path, live);
   assert.equal(existsSync(publication.prior.path), true);
   const published = JSON.parse(readFileSync(live, "utf8"));
+  assert.equal(published.permissions.provider_safety_qualified, true);
+  assert.equal(published.permissions.forecast_shadow_qualified, true);
   assert.equal(published.permissions.adaptive_play_qualified, false);
   assert.equal(published.service_publication.resource_interval_id, resource.interval_id);
 
@@ -948,6 +1123,24 @@ test("profile publication is atomic, identity-scoped, archived, and authority-ga
       job: { id: "job", datasetId: "dataset" },
       config,
       resource: { ...resource, default_tuning_authority: false },
+    }),
+    /lacks publication authority/,
+  );
+
+  await assert.rejects(
+    publishQualifiedProfile({
+      candidate: {
+        ...candidate,
+        permissions: {
+          provider_safety_qualified: false,
+          forecast_shadow_qualified: true,
+          adaptive_play_qualified: false,
+        },
+      },
+      target,
+      job: { id: "job", datasetId: "dataset" },
+      config,
+      resource,
     }),
     /lacks publication authority/,
   );
@@ -997,12 +1190,7 @@ test("profile list validates and projects explicit qualified imports", async (t)
       default_enabled: false,
       enabled_by_profile: false,
     },
-    permissions: {
-      provider_safety_qualified: true,
-      forecast_shadow_qualified: false,
-      adaptive_play_qualified: false,
-    },
-    gates: { passed: true },
+    gates: currentTimingGates(),
     calibration: {
       provider_batch_reserve_us: 1000,
       backup_emit_reserve_us: 1000,
@@ -1029,6 +1217,8 @@ test("profile list validates and projects explicit qualified imports", async (t)
   assert.equal(profiles[0].source, "explicit_import");
   assert.equal(profiles[0].targetIdentity.model_id, "fixture_model");
   assert.equal(profiles[0].permissions.provider_safety_qualified, true);
+  assert.equal(profiles[0].permissions.forecast_shadow_qualified, true);
+  assert.equal(profiles[0].permissions.adaptive_play_qualified, false);
   assert.match(profiles[0].sha256, /^[0-9a-f]{64}$/);
 
   const activeModelRoot = path.join(config.workspace, "active-model");

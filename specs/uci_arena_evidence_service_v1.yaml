@@ -206,6 +206,8 @@ adapters:
   rules:
     - "Adapters construct arguments from validated typed job fields only."
     - "Unknown adapters, flags, schemas, and identity fields fail closed."
+    - "The timing adapter declares both the exact candidate file and its sibling qualification-attempt directory as bounded outputs. Attempt records are content-addressed diagnostic-only observations; they never satisfy timing or publication authority."
+    - "A failed timing attempt with a producer error is retained before the job fails, and the job reports that exact bounded producer error instead of replacing it with a missing-identity or generic-exit diagnostic."
     - "A recognized adapter artifact that records producer failures is rejected with the exact producer failure before source-identity normalization; secondary missing-identity diagnostics must not mask the originating failure."
     - "Service adapters execute Node entrypoints and C++ binaries only."
     - "The Node paired runner owns deterministic manifests, clock controls, checkpoint/resume, single-game shards, and MCGS telemetry while the C++ referee owns chess legality and terminal state."
@@ -220,12 +222,15 @@ time_profile_publication:
   requirements:
     - exact_target_identity
     - qualifier_internal_gates_passed
-    - provider_safety_qualified
+    - current_provider_and_deadline_gates_passed
+    - predictive_controller_disabled
     - clean_resource_interval
     - resource_profile_publication_authority
     - active_or_explicit_target_still_current
   rules:
     - "The qualifier candidate mode cannot write the live cache."
+    - "The qualifier candidate and checkpoint paths are job-owned; candidate attempts remain beside the candidate and resume reuses only the qualifier's identity-bound immutable diagnostic."
+    - "Current v3 profiles emit an explicit permission projection. For an otherwise valid older v3 artifact that lacks only that additive projection, Evidence may derive provider and forecast qualification from the complete current gate set while keeping adaptive play false; an explicit false permission is never upgraded."
     - "The service archives the prior profile and atomically publishes the candidate."
     - "The published profile keeps adaptive_play_qualified=false."
     - "No UCI option or engine default changes as a side effect."

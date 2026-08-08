@@ -90,6 +90,14 @@ Only an exact-identity `uci_time_profile_v3` candidate with passing qualifier
 and resource gates can be atomically published. The service never changes a UCI
 default or enables adaptive play.
 
+Timing jobs use the runtime qualifier's candidate and identity-bound checkpoint
+contract. Candidates never write the live cache directly. Their sibling attempt
+records are retained as content-addressed diagnostic observations, including on
+producer failure, while only the final profile can gain timing or publication
+authority. Older valid v3 profiles that predate the additive permission
+projection remain discoverable by deriving provider and forecast status from
+the complete current gate set; explicit false permissions are never upgraded.
+
 The public profile projection exposes validated live profiles and any explicitly
 configured in-place imports without reading raw evidence or scanning disks:
 

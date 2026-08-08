@@ -8,6 +8,7 @@ import path from "node:path";
 
 import { validateStoredProfile } from "@uci-arena/time-profile-contract";
 import { resolveActiveTarget } from "./identity.mjs";
+import { timingProfilePermissions } from "./time_profile_policy.mjs";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -59,6 +60,7 @@ function loadProjection(filename, source) {
     throw new Error(`configured timing profile is invalid JSON: ${resolved}: ${error.message}`);
   }
   const profile = validateStoredProfile(parsed);
+  const permissions = timingProfilePermissions(profile);
   return {
     schema: "uci_arena_evidence_profile_v1",
     source,
@@ -69,14 +71,7 @@ function loadProjection(filename, source) {
     publishedAt: String(profile.published_at ?? ""),
     identitySha256: profile.identity_sha256,
     targetIdentity: targetProjection(profile),
-    permissions: {
-      provider_safety_qualified:
-        profile.permissions.provider_safety_qualified,
-      forecast_shadow_qualified:
-        profile.permissions.forecast_shadow_qualified,
-      adaptive_play_qualified:
-        profile.permissions.adaptive_play_qualified,
-    },
+    permissions,
     servicePublication:
       profile.service_publication &&
       typeof profile.service_publication === "object" &&
