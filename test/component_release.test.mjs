@@ -1,9 +1,18 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
   validatedDiscovery,
+  validateNodeEntrypointRuntimeClosure,
   validateWindowsRuntimeOwnership,
 } from "../tools/release/component_release.mjs";
 
@@ -54,6 +63,28 @@ test("non-Windows release closure does not apply Windows ownership policy", () =
   ], "linux-x86_64"));
 });
 
+test("release entrypoints import only from their staged runtime closure", (t) => {
+  const staging = mkdtempSync(path.join(tmpdir(), "evidence-release-closure-"));
+  t.after(() => rmSync(staging, { recursive: true, force: true }));
+  const serviceRoot = path.join(staging, "service");
+  mkdirSync(serviceRoot, { recursive: true });
+  writeFileSync(
+    path.join(serviceRoot, "entrypoint.mjs"),
+    'import "./required-contract.mjs";\n',
+  );
+  const entrypoints = { installer_integration: "service/entrypoint.mjs" };
+
+  assert.throws(
+    () => validateNodeEntrypointRuntimeClosure(staging, entrypoints),
+    /runtime closure is incomplete/u,
+  );
+
+  writeFileSync(path.join(serviceRoot, "required-contract.mjs"), "export {};\n");
+  assert.doesNotThrow(
+    () => validateNodeEntrypointRuntimeClosure(staging, entrypoints),
+  );
+});
+
 test("provider release proves independent target-scoped native reproducibility", () => {
   const workflow = readFileSync(
     new URL("../.github/workflows/component-release.yml", import.meta.url),
@@ -79,6 +110,13 @@ test("provider release proves independent target-scoped native reproducibility",
   assert.equal(
     definition.installer_integration.invocation.runtime_component_id,
     "node_runtime.private",
+  );
+  assert.deepEqual(
+    definition.include.find((mapping) => mapping.source === "vendor/time-profile-contract"),
+    {
+      source: "vendor/time-profile-contract",
+      target: "services/evidence-service/vendor/time-profile-contract",
+    },
   );
   assert.deepEqual(
     definition.installer_integration.dependency_bindings.map((binding) => binding.name),

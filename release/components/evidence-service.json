@@ -18,6 +18,7 @@
     {"source": "src", "target": "services/evidence-service/src"},
     {"source": "fixtures", "target": "services/evidence-service/fixtures"},
     {"source": "node_modules", "target": "services/evidence-service/node_modules"},
+    {"source": "vendor/time-profile-contract", "target": "services/evidence-service/vendor/time-profile-contract"},
     {"source": "package.json", "target": "services/evidence-service/package.json"},
     {"source": "package-lock.json", "target": "services/evidence-service/package-lock.json"},
     {"source": "contracts", "target": "services/evidence-service/contracts"},

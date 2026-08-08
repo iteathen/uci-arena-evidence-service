@@ -62,6 +62,40 @@ export function validateWindowsRuntimeOwnership(files, target) {
   }
 }
 
+export function validateNodeEntrypointRuntimeClosure(staging, entrypoints) {
+  const importScript = [
+    'import { pathToFileURL } from "node:url";',
+    'await import(pathToFileURL(process.env.ARENA_STAGED_ENTRYPOINT).href);',
+  ].join("\n");
+  for (const [name, value] of Object.entries(entrypoints)) {
+    const relative = normalizedRelative(value);
+    if (path.extname(relative).toLowerCase() !== ".mjs") continue;
+    try {
+      execFileSync(
+        process.execPath,
+        ["--input-type=module", "--eval", importScript],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            ARENA_STAGED_ENTRYPOINT: path.join(staging, relative),
+          },
+          stdio: "pipe",
+          timeout: 10_000,
+          windowsHide: true,
+        },
+      );
+    } catch (error) {
+      const detail = String(error?.stderr ?? error?.message ?? "import failed")
+        .replaceAll(staging, "<staging>")
+        .slice(0, 2_048);
+      throw new Error(
+        `component entrypoint ${name} runtime closure is incomplete: ${detail}`,
+      );
+    }
+  }
+}
+
 function parseArguments(argv) {
   const values = {};
   for (let index = 0; index < argv.length; index += 2) {
@@ -405,6 +439,7 @@ export function buildComponent({
         throw new Error(`component entrypoint ${name} is not in the payload: ${relative}`);
       }
     }
+    validateNodeEntrypointRuntimeClosure(staging, entrypoints);
     let managerIntegrationApi;
     if (definition.manager_integration_api !== undefined) {
       managerIntegrationApi = validatedManagerIntegrationApi(
