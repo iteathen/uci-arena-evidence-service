@@ -9,6 +9,7 @@ import { shutdownChildProcessTree } from "@uci-arena/background-service-runtime/
 import { packageRoot } from "../src/config.mjs";
 
 const execFileAsync = promisify(execFile);
+const PROCESS_SAMPLE_TIMEOUT_MS = 20_000;
 const cli = path.join(
   packageRoot,
   "src",
@@ -37,21 +38,25 @@ async function processSample(pid) {
           + "[Console]::Out.Write(($p.CPU.ToString([Globalization.CultureInfo]::InvariantCulture))"
           + "+','+$p.WorkingSet64)",
       ],
-      { windowsHide: true, timeout: 5_000 },
+      { windowsHide: true, timeout: PROCESS_SAMPLE_TIMEOUT_MS },
     );
     const [cpuSeconds, rssBytes] = stdout.trim().split(",").map(Number);
-    return { cpuSeconds, rssBytes };
+    if (!Number.isFinite(cpuSeconds) || !Number.isFinite(rssBytes)) {
+      throw new Error(`could not parse Windows process sample: ${stdout}`);
+    }
+    return { cpuSeconds, rssBytes, sampledAtNs: process.hrtime.bigint() };
   }
   const { stdout } = await execFileAsync(
     "ps",
     ["-p", String(pid), "-o", "time=,rss="],
-    { timeout: 5_000 },
+    { timeout: PROCESS_SAMPLE_TIMEOUT_MS },
   );
   const match = stdout.trim().match(/^(\S+)\s+(\d+)$/);
   if (!match) throw new Error(`could not parse ps sample: ${stdout}`);
   return {
     cpuSeconds: parseCpuTime(match[1]),
     rssBytes: Number(match[2]) * 1024,
+    sampledAtNs: process.hrtime.bigint(),
   };
 }
 
@@ -73,7 +78,7 @@ try {
   const first = await processSample(child.pid);
   await delay(2_000);
   const second = await processSample(child.pid);
-  const elapsedSeconds = 2;
+  const elapsedSeconds = Number(second.sampledAtNs - first.sampledAtNs) / 1e9;
   const cpuPercent = Math.max(
     0,
     (second.cpuSeconds - first.cpuSeconds) / elapsedSeconds / os.cpus().length * 100,
