@@ -189,6 +189,41 @@ test("status is healthy and visibly waiting when no target source exists", async
   assert.equal(status.collection.state, "waiting_for_target");
   assert.match(status.collection.reason, /no active deployment/);
   assert.equal(status.control.paused, false);
+  assert.equal(status.daemon.active, false);
+  assert.equal(status.daemon.processAlive, false);
+  assert.equal(status.daemon.stale, true);
+});
+
+test("daemon status requires a live process and fresh heartbeat", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+
+  catalog.updateDaemonState({
+    pid: process.pid,
+    phase: "sleep",
+    heartbeatAt: new Date().toISOString(),
+  });
+  const live = catalog.status().daemon;
+  assert.equal(live.processAlive, true);
+  assert.equal(live.stale, false);
+  assert.equal(live.active, true);
+
+  catalog.updateDaemonState({ pid: 999_999_999 });
+  const dead = catalog.status().daemon;
+  assert.equal(dead.phase, "sleep");
+  assert.equal(dead.processAlive, false);
+  assert.equal(dead.stale, false);
+  assert.equal(dead.active, false);
+
+  catalog.updateDaemonState({
+    pid: process.pid,
+    heartbeatAt: new Date(Date.now() - config.daemon.staleMs - 1_000).toISOString(),
+  });
+  const stale = catalog.status().daemon;
+  assert.equal(stale.processAlive, true);
+  assert.equal(stale.stale, true);
+  assert.equal(stale.active, false);
 });
 
 test("first campaign is deterministic and staged after core controls", async (t) => {

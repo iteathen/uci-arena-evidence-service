@@ -44,7 +44,11 @@ test("Manager API describes a stable one-way JSON contract", async (t) => {
     "evidence.dataset",
     "timing_profile.qualified",
   ]);
-  assert.equal(statusApi(catalog).payload.status.schema, "uci_arena_evidence_status_v1");
+  const status = statusApi(catalog).payload.status;
+  assert.equal(status.schema, "uci_arena_evidence_status_v1");
+  assert.equal(status.daemon.active, false);
+  assert.equal(status.daemon.processAlive, false);
+  assert.equal(status.daemon.stale, true);
   assert.equal(validateConfigApi(config).payload.runtime_component_id, "uci_arena_evidence.runtime");
 });
 

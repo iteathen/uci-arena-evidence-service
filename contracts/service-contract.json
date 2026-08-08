@@ -5,6 +5,9 @@
   "cli_entrypoint": "services/evidence-service/src/cli.mjs",
   "configuration_schema": "uci_arena_evidence_service_config_v1",
   "status_schema": "uci_arena_evidence_status_v1",
+  "schema_documents": {
+    "status": "contracts/status-schema.json"
+  },
   "capabilities": [
     "status",
     "start",

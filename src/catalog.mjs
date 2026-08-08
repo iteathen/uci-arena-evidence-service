@@ -18,6 +18,16 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function processAlive(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
 function parseJson(text, fallback = {}) {
   try {
     return JSON.parse(text);
@@ -619,6 +629,10 @@ export class Catalog {
 
   daemonState() {
     const row = this.database.prepare("SELECT * FROM daemon_state WHERE singleton=1").get();
+    const heartbeatMs = Date.parse(row.heartbeat_at ?? "");
+    const stale = !Number.isFinite(heartbeatMs)
+      || Date.now() - heartbeatMs > this.config.daemon.staleMs;
+    const live = processAlive(Number(row.pid));
     return {
       pid: row.pid,
       phase: row.phase,
@@ -630,6 +644,9 @@ export class Catalog {
       cycleCompletedAt: row.cycle_completed_at,
       lastError: row.last_error,
       lastReport: parseJson(row.last_report_json),
+      stale,
+      processAlive: live,
+      active: !stale && live && !["stopped", "failed"].includes(row.phase),
     };
   }
 
