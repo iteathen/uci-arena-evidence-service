@@ -228,6 +228,8 @@ time_profile_publication:
     - resource_profile_publication_authority
     - active_or_explicit_target_still_current
   rules:
+    - "Timing authority is the Engine-owned semantic timing identity: timing/search contract, model semantics, provider/runtime and hardware identity, and effective search topology. The executable digest and full UCI option inventory are retained as provenance and do not invalidate an already-qualified profile when only unrelated build content changes."
+    - "Fresh timing jobs and their produced artifacts remain bound to the exact registered target executable that actually ran; semantic profile reuse must not weaken job or observation provenance."
     - "The qualifier candidate mode cannot write the live cache."
     - "The qualifier candidate and checkpoint paths are job-owned; candidate attempts remain beside the candidate and resume reuses only the qualifier's identity-bound immutable diagnostic."
     - "Current v3 profiles emit an explicit permission projection. For an otherwise valid older v3 artifact that lacks only that additive projection, Evidence may derive provider and forecast qualification from the complete current gate set while keeping adaptive play false; an explicit false permission is never upgraded."
@@ -351,6 +353,7 @@ relocatable_install:
     - "Configuration loading must preserve the selected runtime root instead of replacing it with the Evidence Service package root; repositoryRoot is a compatibility projection of that same selected runtime root, not a second authority."
     - "The component artifact declares Evidence Service discovery as an active-root resource; Installer and Manager never infer that role from its component id."
     - "The component publishes a bounded installer-integration entrypoint that owns Evidence configuration and active-target document generation from declared dependency and timing-profile bindings."
+    - "Installer integration validates a supplied timing profile through the Engine-owned time-profile contract, records the installed engine digest as current target provenance, and does not equate a historical profile executable digest with timing authority. Runtime consumers revalidate the profile's semantic timing identity before applying it."
     - "Installer supplies validated paths through the versioned installation context and does not interpret Evidence configuration fields, profile semantics, or active-target document contents."
     - "The component manifest declares the Evidence startup CLI, exact action arrays, workspace/configuration flags, root response shape, and mandatory configuration-match plus live-daemon evidence; Installer does not contain an Evidence-specific health branch."
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."

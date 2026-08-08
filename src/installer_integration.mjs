@@ -56,9 +56,6 @@ function timingProfileConfiguration(profilePath, bindings) {
   const model = requireObject(profile.identity?.model, 'timing profile model identity');
   const provider = requireObject(profile.identity?.provider ?? {}, 'timing profile provider identity');
   const engineSha256 = sha256File(bindings.engine);
-  if (profile.identity?.engine?.executable_sha256 !== engineSha256) {
-    throw new Error('timing profile does not match the installed engine');
-  }
   const options = { ...(search.extra_engine_options ?? {}) };
   if (options === null || typeof options !== 'object' || Array.isArray(options)) {
     throw new Error('timing profile extra engine options are invalid');

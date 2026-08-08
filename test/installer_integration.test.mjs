@@ -87,7 +87,7 @@ test('installer integration binds Evidence Runtime and generates an exact active
   assert.equal(result.generated_documents[0].document.uci_options.SearchCore, 'mcgs');
 });
 
-test('installer integration rejects an installed engine that differs from timing evidence', (t) => {
+test('installer integration retains timing authority across provenance-only rebuilds', (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), 'arena-evidence-installer-drift-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const profilePath = path.join(root, 'timing.json');
@@ -113,6 +113,28 @@ test('installer integration rejects an installed engine that differs from timing
   }), 'utf8');
   const engine = path.join(root, 'engine.exe');
   writeFileSync(engine, 'different', 'utf8');
+  const result = renderInstallerConfiguration({
+    schema: 'arena_provider_install_context_v1', schema_version: 1,
+    workspace: path.join(root, 'workspace'), enabled: true,
+    bindings: { evidence_runtime_root: path.join(root, 'runtime'), engine,
+      model_root: path.join(root, 'models'), stockfish: path.join(root, 'stockfish'),
+      referee: path.join(root, 'runtime', 'referee') },
+    locators: { timing_profile: profilePath },
+  });
+  assert.equal(result.configuration.engine_sha256, `sha256:${sha256File(engine)}`);
+  assert.equal(result.configuration.profileImports[0], profilePath);
+  assert.equal(result.generated_documents[0].document.engine_sha256,
+    `sha256:${sha256File(engine)}`);
+
+  writeFileSync(profilePath, JSON.stringify({
+    schema: 'uci_time_profile_v3', qualified: true, gates: { passed: true },
+    predictive_controller: { enabled_by_profile: false, default_enabled: false },
+    identity, identity_sha256: `sha256:${'0'.repeat(64)}`,
+    calibration: { provider_batch_reserve_us: 1, backup_emit_reserve_us: 0,
+      iteration_forecast_scale_permille: 1000 },
+    applicability: { move_overhead_ms: { minimum: 250, maximum: 1500,
+      tested_values: [250, 650, 700, 1500] } },
+  }), 'utf8');
   assert.throws(() => renderInstallerConfiguration({
     schema: 'arena_provider_install_context_v1', schema_version: 1,
     workspace: path.join(root, 'workspace'), enabled: true,
@@ -120,5 +142,5 @@ test('installer integration rejects an installed engine that differs from timing
       model_root: path.join(root, 'models'), stockfish: path.join(root, 'stockfish'),
       referee: path.join(root, 'runtime', 'referee') },
     locators: { timing_profile: profilePath },
-  }), /does not match the installed engine/u);
+  }), /identity digest mismatch/u);
 });
