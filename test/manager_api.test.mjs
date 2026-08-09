@@ -83,6 +83,38 @@ test("Manager API projects dataset authority without exposing observations", asy
   assert.deepEqual(unchanged.payload.outputs, []);
 });
 
+test("catalog open repairs only unambiguous legacy cancelled dataset state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "evidence-catalog-repair-"));
+  const config = await loadConfig({ workspace: root });
+  let catalog = new Catalog(config);
+  try {
+    const datasetId = catalog.createDataset({
+      campaign: "legacy-cancelled",
+      targetIdentity: { source: "active_model_pointer" },
+    });
+    const job = catalog.enqueueJob({
+      adapter: "timing_profile",
+      shardId: "legacy",
+      datasetId,
+      fingerprint: "a".repeat(64),
+    });
+    catalog.transitionJob(job.id, "cancelled");
+    assert.equal(catalog.dataset(datasetId).state, "collecting");
+
+    catalog.close();
+    catalog = null;
+    catalog = new Catalog(config);
+    const repaired = catalog.dataset(datasetId);
+    assert.equal(repaired.state, "cancelled");
+    assert.deepEqual(repaired.authority, {});
+    assert.match(repaired.completedAt, /^\d{4}-\d{2}-\d{2}T/u);
+    assert.equal(repaired.observationCount, 0);
+  } finally {
+    catalog?.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("Manager API rejects malformed cursors and output identities", async (t) => {
   const { catalog, config } = await fixture(t);
   assert.throws(

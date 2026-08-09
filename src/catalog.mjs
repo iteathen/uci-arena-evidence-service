@@ -232,6 +232,36 @@ export class Catalog {
     this.database.prepare(`
       INSERT OR IGNORE INTO daemon_state(singleton,phase,last_report_json) VALUES(1,'stopped','{}')
     `).run();
+    this.repairLegacyDatasetLifecycle();
+  }
+
+  repairLegacyDatasetLifecycle() {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const repaired = this.database.prepare(`
+        UPDATE datasets
+        SET state='cancelled',
+            authority_json='{}',
+            completed_at=COALESCE(
+              completed_at,
+              (SELECT MAX(j.updated_at) FROM jobs AS j WHERE j.dataset_id=datasets.id),
+              ?
+            )
+        WHERE state='collecting'
+          AND EXISTS (
+            SELECT 1 FROM jobs AS j WHERE j.dataset_id=datasets.id
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM jobs AS j
+            WHERE j.dataset_id=datasets.id AND j.state!='cancelled'
+          )
+      `).run(nowIso()).changes;
+      this.database.exec("COMMIT");
+      return repaired;
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
   }
 
   close() {

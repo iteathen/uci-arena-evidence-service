@@ -127,6 +127,7 @@ catalog:
     - "Atomic rename publishes manifests, control state, status, and profile candidates."
     - "Interrupted and contaminated attempts remain visible but never become authoritative observations."
     - "Cancelling a job atomically closes its one-to-one dataset as cancelled; retrying that job atomically reopens the dataset as collecting. Manager projects this provider-owned lifecycle and never infers it from job rows."
+    - "Catalog open repairs a retained legacy contradiction only when a non-completed collecting dataset has one or more jobs and every referencing job is cancelled. The repair preserves the dataset and evidence, clears authority, and records cancellation completion from the latest job transition; mixed or ambiguous states are never guessed or deleted."
     - "Prune requires an explicit before timestamp and confirmation token and emits an audit record."
 
 observation_envelope:
