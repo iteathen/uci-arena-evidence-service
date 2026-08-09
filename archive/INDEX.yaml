@@ -1,0 +1,19 @@
+archive_schema: project_evidence_archive_v1
+records:
+  - archived_at: 2026-08-09
+    original_path: AGENTS.md
+    archive_path: archive/2026-08-09/AGENTS.md.archived
+    reason: >-
+      Preserve the pre-unification Evidence Service agent contract after moving
+      reusable operating doctrine into the shared core standard while retaining
+      scheduling, admission, resource isolation, normalization, resumability,
+      publication, and runtime-contract ownership in the current overlay.
+    superseded_by:
+      - AGENTS.md
+      - .agents/core-standard.md
+    removed_from_active_authority: >-
+      Root startup now uses the common operating standard plus the compact
+      Evidence Service overlay; the archived file is historical evidence only.
+    source_revision: 64ba956a23fa0af3b1273a91560e80417d325ee5
+    source_blob: d374454ed8c5b862a27888930944cf23b6ed760e
+    change_reference: PR-24
