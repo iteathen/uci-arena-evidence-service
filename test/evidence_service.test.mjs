@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from "node:fs";
@@ -637,6 +638,44 @@ test("active and explicit targets fail closed on missing identity and drift", as
   writeFileSync(engine, "engine-v2", "utf8");
   assert.match(resolveJobTarget(job, catalog, config).reason, /identity drifted/);
   assert.match(resolveActiveTarget(config).reason, /SHA-256/);
+});
+
+test("default target resolution preserves active authority over retained targets", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const activeModelRoot = path.join(config.workspace, "active-model", "current");
+  mkdirSync(activeModelRoot, { recursive: true });
+  mkdirSync(path.dirname(config.activeModelPointer), { recursive: true });
+  writeFileSync(config.activeModelPointer, JSON.stringify({
+    model_id: "active_model",
+    model_fingerprint: "9988",
+    provider: "directml",
+    model_root: activeModelRoot,
+    engine_path: process.execPath,
+    engine_sha256: sha256File(process.execPath),
+    uci_options: { SearchCore: "mcgs" },
+  }));
+  const retainedCpuTarget = catalog.addTarget(targetFixture(config));
+
+  const active = resolveJobTarget({ targetId: null }, catalog, config);
+  assert.equal(active.target.id, null);
+  assert.equal(active.target.modelId, "active_model");
+  assert.equal(active.target.provider, "directml");
+
+  unlinkSync(config.activeModelPointer);
+  const soleFallback = resolveJobTarget({ targetId: null }, catalog, config);
+  assert.equal(soleFallback.target.id, retainedCpuTarget.id);
+  assert.equal(soleFallback.target.provider, "cpu");
+
+  catalog.addTarget({
+    ...targetFixture(config),
+    label: "second retained target",
+    provider: "directml",
+  });
+  const ambiguous = resolveJobTarget({ targetId: null }, catalog, config);
+  assert.equal(ambiguous.target, null);
+  assert.match(ambiguous.reason, /multiple explicit targets require a selected target UUID/u);
 });
 
 test("shared lease is FIFO and foreground revokes a background holder", async (t) => {

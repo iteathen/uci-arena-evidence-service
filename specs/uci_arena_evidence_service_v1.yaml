@@ -106,6 +106,8 @@ target_resolution:
     - uci_options
   rules:
     - "An absent active pointer and empty explicit target queue is a healthy waiting state."
+    - "A job without an explicit target UUID resolves the current valid active pointer first. If the active pointer is unavailable, exactly one registered explicit target is the provider-owned fallback; multiple explicit targets without a valid active pointer are ambiguous and remain waiting for an operator-selected service UUID."
+    - "Registered targets are immutable historical identities. Their count or age never overrides a valid active pointer, and Manager must not infer default target policy from the target projection."
     - "Identity drift after enqueue invalidates the attempt and returns the job to waiting_for_target."
     - "No target field may be guessed from a filename."
 
@@ -281,7 +283,7 @@ manager_integration_api:
     - "Target register accepts one exact typed deployment supplied by Manager from an already registered engine resource. Evidence validates absolute regular-file and directory paths, hashes the engine itself, permits only the provider allowlist and bounded scalar UCI options, and returns the existing target when every identity field is unchanged."
     - "Target register never accepts a command, adapter, arbitrary argv, browser-selected executable, engine digest, or provider-private configuration. Manager remains UCI probe authority and Evidence remains target identity authority."
     - "Orchestration summaries contain no paths, job configuration, fingerprints used only for catalog deduplication, or raw evidence; bounded wait/error diagnostics replace absolute Windows, UNC, and POSIX paths with a redaction marker."
-    - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID; Manager cannot submit arbitrary adapters, flags, or commands through this API."
+    - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID. Omission delegates default-target resolution to Evidence Service; Manager cannot submit arbitrary adapters, flags, commands, or target-count-derived defaults through this API."
     - "Job control is limited to cancel and retry against a service-issued job UUID and preserves the service-owned lifecycle rules."
     - "Dataset records expose stable identity, state, observation count, target identity, explicit authority, and a typed dataset-export invocation without exposing raw observations."
     - "Profile records expose only profiles admitted by listQualifiedProfiles, including exact file digest, target identity, permissions, publication identity, and controlled regular-file path."
