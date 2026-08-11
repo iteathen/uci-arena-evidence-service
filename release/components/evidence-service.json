@@ -1,13 +1,24 @@
 {
   "schema": "arena_provider_component_definition_v1",
   "component_id": "uci_arena_evidence.service",
+  "discovery": [
+    {"kind": "evidence_service", "locator": {"source": "active_root"}}
+  ],
   "source_repository": "iteathen/uci-arena-evidence-service",
   "package_json": "package.json",
+  "native_toolchain_by_target": {
+    "windows-x86_64": {
+      "receipt_schema": "arena_native_toolchain_receipt_v1",
+      "build_system": "cmake",
+      "language": "cxx"
+    }
+  },
   "contract_manifest": "services/evidence-service/contracts/service-contract.json",
   "include": [
     {"source": "src", "target": "services/evidence-service/src"},
     {"source": "fixtures", "target": "services/evidence-service/fixtures"},
     {"source": "node_modules", "target": "services/evidence-service/node_modules"},
+    {"source": "vendor/time-profile-contract", "target": "services/evidence-service/vendor/time-profile-contract"},
     {"source": "package.json", "target": "services/evidence-service/package.json"},
     {"source": "package-lock.json", "target": "services/evidence-service/package-lock.json"},
     {"source": "contracts", "target": "services/evidence-service/contracts"},
@@ -19,7 +30,50 @@
       {"source": "provider_stage/background_service_native", "target": "services/evidence-service/native"}
     ]
   },
-  "entrypoints": {"cli": "services/evidence-service/src/cli.mjs"},
+  "entrypoints": {
+    "cli": "services/evidence-service/src/cli.mjs",
+    "installer_integration": "services/evidence-service/src/installer_integration.mjs"
+  },
+  "installer_integration": {
+    "schema": "arena_provider_installer_integration_v1",
+    "schema_version": 1,
+    "entrypoint": "installer_integration",
+    "invocation": {
+      "kind": "dependency_runtime",
+      "runtime_component_id": "node_runtime.private",
+      "runtime_entrypoint": "node"
+    },
+    "arguments": ["--context"],
+    "workspace_name": "evidence-service",
+    "workspace_placement": "product_data",
+    "configure_when_disabled": false,
+    "dependency_bindings": [
+      {"name": "evidence_runtime_root", "component_id": "uci_arena_evidence.runtime", "source": "active_root", "required": true},
+      {"name": "engine", "component_id": "uci_arena.engine", "source": "entrypoint", "entrypoint": "uci", "required": true},
+      {"name": "model_root", "component_id": "uci_arena.engine", "source": "component_path", "path": "models/default", "required": true},
+      {"name": "stockfish", "component_id": "stockfish.engine", "source": "entrypoint", "entrypoint": "stockfish", "required": true},
+      {"name": "referee", "component_id": "uci_arena_evidence.runtime", "source": "entrypoint", "entrypoint": "referee", "required": true}
+    ],
+    "locator_bindings": [
+      {"name": "timing_profile", "kind": "timing_profile", "required": false}
+    ],
+    "startup_control": {
+      "schema": "arena_provider_startup_control_v1",
+      "schema_version": 1,
+      "entrypoint": "cli",
+      "actions": {
+        "install": ["startup", "install"],
+        "uninstall": ["startup", "uninstall"]
+      },
+      "workspace_argument": {"flag": "--workspace", "relative_path": "."},
+      "configuration_argument": "--config",
+      "result": {
+        "envelope": "root",
+        "require_configuration_match_on_install": true,
+        "require_live_on_install": true
+      }
+    }
+  },
   "manager_integration_api": {
     "schema": "uci_arena_manager_service_api_v1",
     "version": "1.0",

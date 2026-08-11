@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "uci_arena_evidence_status_v1",
+  "title": "UCI Arena Evidence Service status",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "workspace",
+    "control",
+    "collection",
+    "daemon",
+    "jobs",
+    "targets",
+    "datasets",
+    "sampledAt"
+  ],
+  "properties": {
+    "schema": {"const": "uci_arena_evidence_status_v1"},
+    "workspace": {"type": "string", "minLength": 1},
+    "control": {
+      "type": "object",
+      "required": ["paused", "reason"],
+      "properties": {
+        "paused": {"type": "boolean"},
+        "reason": {"type": "string", "maxLength": 2048}
+      }
+    },
+    "collection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reason"],
+      "properties": {
+        "state": {"enum": ["available", "paused", "waiting_for_target"]},
+        "reason": {"type": "string", "maxLength": 2048}
+      }
+    },
+    "daemon": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pid",
+        "phase",
+        "currentJobId",
+        "resourceMode",
+        "startedAt",
+        "heartbeatAt",
+        "cycleStartedAt",
+        "cycleCompletedAt",
+        "lastError",
+        "lastReport",
+        "stale",
+        "processAlive",
+        "active"
+      ],
+      "properties": {
+        "pid": {"type": ["integer", "null"], "minimum": 1},
+        "phase": {"enum": ["stopped", "sampling", "sleep", "failed"]},
+        "currentJobId": {"type": ["string", "null"]},
+        "resourceMode": {"type": ["string", "null"]},
+        "startedAt": {"type": ["string", "null"]},
+        "heartbeatAt": {"type": ["string", "null"]},
+        "cycleStartedAt": {"type": ["string", "null"]},
+        "cycleCompletedAt": {"type": ["string", "null"]},
+        "lastError": {"type": "string", "maxLength": 2048},
+        "lastReport": {"type": "object"},
+        "stale": {"type": "boolean"},
+        "processAlive": {"type": "boolean"},
+        "active": {"type": "boolean"}
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "targets": {"type": "integer", "minimum": 0},
+    "datasets": {"type": "integer", "minimum": 0},
+    "sampledAt": {"type": "string"}
+  }
+}

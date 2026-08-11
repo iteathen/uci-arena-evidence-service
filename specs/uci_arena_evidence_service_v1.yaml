@@ -106,6 +106,8 @@ target_resolution:
     - uci_options
   rules:
     - "An absent active pointer and empty explicit target queue is a healthy waiting state."
+    - "A job without an explicit target UUID resolves the current valid active pointer first. If the active pointer is unavailable, exactly one registered explicit target is the provider-owned fallback; multiple explicit targets without a valid active pointer are ambiguous and remain waiting for an operator-selected service UUID."
+    - "Registered targets are immutable historical identities. Their count or age never overrides a valid active pointer, and Manager must not infer default target policy from the target projection."
     - "Identity drift after enqueue invalidates the attempt and returns the job to waiting_for_target."
     - "No target field may be guessed from a filename."
 
@@ -127,6 +129,7 @@ catalog:
     - "Atomic rename publishes manifests, control state, status, and profile candidates."
     - "Interrupted and contaminated attempts remain visible but never become authoritative observations."
     - "Cancelling a job atomically closes its one-to-one dataset as cancelled; retrying that job atomically reopens the dataset as collecting. Manager projects this provider-owned lifecycle and never infers it from job rows."
+    - "Catalog open repairs a retained legacy contradiction only when a non-completed collecting dataset has one or more jobs and every referencing job is cancelled. The repair preserves the dataset and evidence, clears authority, and records cancellation completion from the latest job transition; mixed or ambiguous states are never guessed or deleted."
     - "Prune requires an explicit before timestamp and confirmation token and emits an audit record."
 
 observation_envelope:
@@ -206,6 +209,8 @@ adapters:
   rules:
     - "Adapters construct arguments from validated typed job fields only."
     - "Unknown adapters, flags, schemas, and identity fields fail closed."
+    - "The timing adapter declares both the exact candidate file and its sibling qualification-attempt directory as bounded outputs. Attempt records are content-addressed diagnostic-only observations; they never satisfy timing or publication authority."
+    - "A failed timing attempt with a producer error is retained before the job fails, and the job reports that exact bounded producer error instead of replacing it with a missing-identity or generic-exit diagnostic."
     - "A recognized adapter artifact that records producer failures is rejected with the exact producer failure before source-identity normalization; secondary missing-identity diagnostics must not mask the originating failure."
     - "Service adapters execute Node entrypoints and C++ binaries only."
     - "The Node paired runner owns deterministic manifests, clock controls, checkpoint/resume, single-game shards, and MCGS telemetry while the C++ referee owns chess legality and terminal state."
@@ -220,12 +225,17 @@ time_profile_publication:
   requirements:
     - exact_target_identity
     - qualifier_internal_gates_passed
-    - provider_safety_qualified
+    - current_provider_and_deadline_gates_passed
+    - predictive_controller_disabled
     - clean_resource_interval
     - resource_profile_publication_authority
     - active_or_explicit_target_still_current
   rules:
+    - "Timing authority is the Engine-owned semantic timing identity: timing/search contract, model semantics, provider/runtime and hardware identity, and effective search topology. The executable digest and full UCI option inventory are retained as provenance and do not invalidate an already-qualified profile when only unrelated build content changes."
+    - "Fresh timing jobs and their produced artifacts remain bound to the exact registered target executable that actually ran; semantic profile reuse must not weaken job or observation provenance."
     - "The qualifier candidate mode cannot write the live cache."
+    - "The qualifier candidate and checkpoint paths are job-owned; candidate attempts remain beside the candidate and resume reuses only the qualifier's identity-bound immutable diagnostic."
+    - "Current v3 profiles emit an explicit permission projection. For an otherwise valid older v3 artifact that lacks only that additive projection, Evidence may derive provider and forecast qualification from the complete current gate set while keeping adaptive play false; an explicit false permission is never upgraded."
     - "The service archives the prior profile and atomically publishes the candidate."
     - "The published profile keeps adaptive_play_qualified=false."
     - "No UCI option or engine default changes as a side effect."
@@ -273,7 +283,7 @@ manager_integration_api:
     - "Target register accepts one exact typed deployment supplied by Manager from an already registered engine resource. Evidence validates absolute regular-file and directory paths, hashes the engine itself, permits only the provider allowlist and bounded scalar UCI options, and returns the existing target when every identity field is unchanged."
     - "Target register never accepts a command, adapter, arbitrary argv, browser-selected executable, engine digest, or provider-private configuration. Manager remains UCI probe authority and Evidence remains target identity authority."
     - "Orchestration summaries contain no paths, job configuration, fingerprints used only for catalog deduplication, or raw evidence; bounded wait/error diagnostics replace absolute Windows, UNC, and POSIX paths with a redaction marker."
-    - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID; Manager cannot submit arbitrary adapters, flags, or commands through this API."
+    - "Campaign enqueue is limited to the built-in first campaign and an optional existing service-issued target UUID. Omission delegates default-target resolution to Evidence Service; Manager cannot submit arbitrary adapters, flags, commands, or target-count-derived defaults through this API."
     - "Job control is limited to cancel and retry against a service-issued job UUID and preserves the service-owned lifecycle rules."
     - "Dataset records expose stable identity, state, observation count, target identity, explicit authority, and a typed dataset-export invocation without exposing raw observations."
     - "Profile records expose only profiles admitted by listQualifiedProfiles, including exact file digest, target identity, permissions, publication identity, and controlled regular-file path."
@@ -282,6 +292,7 @@ manager_integration_api:
     - "The API never returns SQL rows, catalog paths, credential data, runtime secrets, or unvalidated artifact-store paths."
     - "Installer retains installation and suite-promotion authority; Manager must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions in its installed-suite projections and controls."
     - "Unknown API major versions and unknown operations fail closed."
+    - "Status publishes daemon.active, daemon.processAlive, and daemon.stale as provider-owned runtime authority. Active is true only when the recorded process is live, the heartbeat is within stale_seconds, and the phase is neither stopped nor failed; a remembered phase, pid, startup registration, or desired state is never live authority."
 
 first_campaign:
   candidate_option: "McgsTemporalWeightProfile=AdaptiveCurveV1"
@@ -341,9 +352,29 @@ relocatable_install:
         windows-x86_64: bin/uci_arena_complete_game_referee.exe
         linux-x86_64: bin/uci_arena_complete_game_referee
   rules:
+    - "Installed configuration may declare the absolute evidence-runtime component root. Resolution precedence is an explicit UCI_ARENA_EVIDENCE_RUNTIME_ROOT invocation override, then the validated configuration value, then the service package root development default."
+    - "The component manifest declares product_data as its suite workspace placement. A conforming Installer resolves that placement beneath its mutable per-user or per-machine product data root, while standalone Evidence Service retains its own platform default and explicit --workspace override."
+    - "Configuration loading must preserve the selected runtime root instead of replacing it with the Evidence Service package root; repositoryRoot is a compatibility projection of that same selected runtime root, not a second authority."
+    - "The component artifact declares Evidence Service discovery as an active-root resource; Installer and Manager never infer that role from its component id."
+    - "The component publishes a bounded installer-integration entrypoint that owns Evidence configuration and active-target document generation from declared dependency and timing-profile bindings."
+    - "The published component contains the complete regular-file runtime closure of every declared Node entrypoint, including the vendored time-profile contract used by installer integration. Release construction imports each staged entrypoint in an isolated Node process before creating the archive; source-tree availability is not package evidence."
+    - "Installer integration validates a supplied timing profile through the Engine-owned time-profile contract, records the installed engine digest as current target provenance, and does not equate a historical profile executable digest with timing authority. Runtime consumers revalidate the profile's semantic timing identity before applying it."
+    - "Installer supplies validated paths through the versioned installation context and does not interpret Evidence configuration fields, profile semantics, or active-target document contents."
+    - "The component manifest declares the Evidence startup CLI, exact action arrays, workspace/configuration flags, root response shape, and mandatory configuration-match plus live-daemon evidence; Installer does not contain an Evidence-specific health branch."
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
     - "Before constructing a queued adapter command, the service validates contracts/evidence-runtime-contract.json and every current-platform allowlisted entrypoint inside runtimeRoot."
     - "An absent runtime remains a healthy state while no job is runnable; an absent, malformed, mismatched, or escaping runtime contract fails the job before subprocess creation."
     - "Startup registrations use packageRoot as WorkingDirectory."
     - "Engine, Stockfish, model, referee, and runner locations remain explicit typed configuration."
     - "Restaurant locations are detection-only and are never inferred from the installed component parent."
+    - "The opt-in source integration test receives an explicit test-only Evidence Runtime root. It must not repurpose UCI_ARENA_EVIDENCE_RUNTIME_ROOT or alter the production precedence between invocation override, installed configuration, and development default."
+
+provider_release_reproducibility_2026_08_01:
+  status: active
+  owner: evidence_service_provider_release
+  rules:
+    - "A Windows Evidence Service candidate builds the shared native helpers twice from independent empty build and staging roots; repacking one staged payload is not reproducibility evidence."
+    - "Both complete unsigned component archives and both provider-result predicates are byte-identical before signing or publication."
+    - "The exact native toolchain receipt binds component id, target, source commit, workflow identity, and primary plus reproduction build roles."
+    - "The Linux service artifact contains no native helper bytes and neither requires nor invents native toolchain evidence."
+    - "A mismatch blocks publication and reports both archive digests plus the first differing payload path."

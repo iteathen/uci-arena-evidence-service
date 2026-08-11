@@ -22,6 +22,9 @@ github_automation:
     - Exact local check commands and outcomes are recorded before merge.
     - Component release and provenance run only after explicit operator dispatch
       and are not automatically required pull-request status checks.
+    - The dispatched job publishes its verified archive, provider result, and
+      Sigstore bundle directly to one private immutable candidate prerelease;
+      Actions artifact storage is not candidate transport.
 
 contracts:
   component_id: uci_arena_evidence.service
@@ -40,6 +43,7 @@ rules:
   - Source imports never escape the repository root.
   - UCI Arena, Book Forge, and Manager checkouts are unavailable to clean builds.
   - Vendored upstream packages are regular files and match the upstream lock.
+  - Windows provider payloads contain only application-local redistributable runtime libraries; OS-owned UCRT, API-set, and system-directory DLLs fail release construction.
   - Runner and referee implementations are absent from this repository.
   - Runtime contract mismatches fail before a job starts.
   - UCI Arena Installer is the only suite composition, assembly, and promotion
@@ -55,6 +59,7 @@ validation:
   - repository_import_boundary
   - clean_npm_install
   - source_tests
+  - windows_native_helpers_built_before_source_tests_without_native_skips
   - absent_runtime_healthy_waiting_state
   - pinned_runtime_integration
   - deterministic_component_candidate

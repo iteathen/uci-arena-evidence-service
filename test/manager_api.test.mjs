@@ -44,7 +44,11 @@ test("Manager API describes a stable one-way JSON contract", async (t) => {
     "evidence.dataset",
     "timing_profile.qualified",
   ]);
-  assert.equal(statusApi(catalog).payload.status.schema, "uci_arena_evidence_status_v1");
+  const status = statusApi(catalog).payload.status;
+  assert.equal(status.schema, "uci_arena_evidence_status_v1");
+  assert.equal(status.daemon.active, false);
+  assert.equal(status.daemon.processAlive, false);
+  assert.equal(status.daemon.stale, true);
   assert.equal(validateConfigApi(config).payload.runtime_component_id, "uci_arena_evidence.runtime");
 });
 
@@ -77,6 +81,38 @@ test("Manager API projects dataset authority without exposing observations", asy
   const unchanged = listOutputsApi(catalog, config, listed.payload.cursor);
   assert.equal(unchanged.payload.unchanged, true);
   assert.deepEqual(unchanged.payload.outputs, []);
+});
+
+test("catalog open repairs only unambiguous legacy cancelled dataset state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "evidence-catalog-repair-"));
+  const config = await loadConfig({ workspace: root });
+  let catalog = new Catalog(config);
+  try {
+    const datasetId = catalog.createDataset({
+      campaign: "legacy-cancelled",
+      targetIdentity: { source: "active_model_pointer" },
+    });
+    const job = catalog.enqueueJob({
+      adapter: "timing_profile",
+      shardId: "legacy",
+      datasetId,
+      fingerprint: "a".repeat(64),
+    });
+    catalog.transitionJob(job.id, "cancelled");
+    assert.equal(catalog.dataset(datasetId).state, "collecting");
+
+    catalog.close();
+    catalog = null;
+    catalog = new Catalog(config);
+    const repaired = catalog.dataset(datasetId);
+    assert.equal(repaired.state, "cancelled");
+    assert.deepEqual(repaired.authority, {});
+    assert.match(repaired.completedAt, /^\d{4}-\d{2}-\d{2}T/u);
+    assert.equal(repaired.observationCount, 0);
+  } finally {
+    catalog?.close();
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("Manager API rejects malformed cursors and output identities", async (t) => {

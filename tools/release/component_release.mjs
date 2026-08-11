@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 
 import { readAndValidateTestReceipt } from "./test_receipt.mjs";
+import { readAndValidateNativeToolchainReceipt } from "./native_toolchain_receipt.mjs";
 
 const FORBIDDEN_PARTS = new Set([
   ".git",
@@ -28,6 +29,72 @@ const FORBIDDEN_PARTS = new Set([
   "uploads",
   "tmp",
 ]);
+const FORBIDDEN_WINDOWS_SYSTEM_DLLS = new Set([
+  "advapi32.dll",
+  "bcrypt.dll",
+  "kernel32.dll",
+  "ntdll.dll",
+  "powrprof.dll",
+  "shell32.dll",
+  "ucrtbase.dll",
+  "user32.dll",
+  "ws2_32.dll",
+]);
+
+export function validateWindowsRuntimeOwnership(files, target) {
+  if (target !== "windows-x86_64") return;
+  const forbidden = files.filter(({ path: relative }) => {
+    const normalized = relative.replaceAll("\\", "/").toLowerCase();
+    const basename = path.posix.basename(normalized);
+    return normalized.split("/").some((part) =>
+      part === "system32" || part === "syswow64")
+      || basename.startsWith("api-ms-")
+      || basename.startsWith("ext-ms-")
+      || FORBIDDEN_WINDOWS_SYSTEM_DLLS.has(basename);
+  });
+  if (forbidden.length > 0) {
+    throw new Error(
+      `OS-owned Windows runtime files are forbidden in component payloads: ${forbidden
+        .map(({ path: relative }) => relative)
+        .sort()
+        .join(", ")}`,
+    );
+  }
+}
+
+export function validateNodeEntrypointRuntimeClosure(staging, entrypoints) {
+  const importScript = [
+    'import { pathToFileURL } from "node:url";',
+    'await import(pathToFileURL(process.env.ARENA_STAGED_ENTRYPOINT).href);',
+  ].join("\n");
+  for (const [name, value] of Object.entries(entrypoints)) {
+    const relative = normalizedRelative(value);
+    if (path.extname(relative).toLowerCase() !== ".mjs") continue;
+    try {
+      execFileSync(
+        process.execPath,
+        ["--input-type=module", "--eval", importScript],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            ARENA_STAGED_ENTRYPOINT: path.join(staging, relative),
+          },
+          stdio: "pipe",
+          timeout: 10_000,
+          windowsHide: true,
+        },
+      );
+    } catch (error) {
+      const detail = String(error?.stderr ?? error?.message ?? "import failed")
+        .replaceAll(staging, "<staging>")
+        .slice(0, 2_048);
+      throw new Error(
+        `component entrypoint ${name} runtime closure is incomplete: ${detail}`,
+      );
+    }
+  }
+}
 
 function parseArguments(argv) {
   const values = {};
@@ -69,6 +136,45 @@ function exactIdentifierSet(value) {
     return null;
   }
   return [...value].sort();
+}
+
+export function validatedDiscovery(candidate, entrypoints, files) {
+  if (!Array.isArray(candidate) || candidate.length === 0 || candidate.length > 16) {
+    throw new Error("component discovery declaration is invalid");
+  }
+  const kinds = new Set();
+  return candidate.map((entry) => {
+    if (!entry || Object.keys(entry).sort().join(",") !== "kind,locator"
+        || !/^[A-Za-z0-9._-]+$/u.test(entry.kind ?? "")
+        || kinds.has(entry.kind) || !entry.locator || Array.isArray(entry.locator)) {
+      throw new Error("component discovery entry is invalid");
+    }
+    kinds.add(entry.kind);
+    const locator = structuredClone(entry.locator);
+    if (locator.source === "active_root") {
+      if (Object.keys(locator).join(",") !== "source") {
+        throw new Error("active-root discovery locator is invalid");
+      }
+    } else if (locator.source === "entrypoint") {
+      if (Object.keys(locator).sort().join(",") !== "entrypoint,source"
+          || !/^[A-Za-z0-9._-]+$/u.test(locator.entrypoint ?? "")
+          || !Object.hasOwn(entrypoints, locator.entrypoint)) {
+        throw new Error("entrypoint discovery locator is invalid");
+      }
+    } else if (locator.source === "component_path") {
+      if (Object.keys(locator).sort().join(",") !== "path,source") {
+        throw new Error("component-path discovery locator is invalid");
+      }
+      locator.path = normalizedRelative(locator.path);
+      if (!files.some((file) => file.path === locator.path
+          || file.path.startsWith(`${locator.path}/`))) {
+        throw new Error("component-path discovery locator is unlisted");
+      }
+    } else {
+      throw new Error("component discovery locator source is invalid");
+    }
+    return { kind: entry.kind, locator };
+  });
 }
 
 export function validatedManagerIntegrationApi(candidate, entrypoints) {
@@ -231,6 +337,7 @@ export function buildComponent({
   sourceDateEpoch,
   workflowIdentity,
   testReceiptPath,
+  nativeToolchainReceiptPath,
   allowDirty = false,
 }) {
   const definition = JSON.parse(readFileSync(definitionPath, "utf8"));
@@ -268,6 +375,23 @@ export function buildComponent({
     sourceCommit: identity.commit,
     workflowIdentity,
   });
+  const nativeToolchainRequired = definition.native_toolchain !== undefined
+    || definition.native_toolchain_by_target?.[target] !== undefined;
+  let nativeToolchainEvidence;
+  if (nativeToolchainRequired) {
+    if (!nativeToolchainReceiptPath) {
+      throw new Error("native provider components require an exact toolchain receipt");
+    }
+    nativeToolchainEvidence = readAndValidateNativeToolchainReceipt({
+      filename: nativeToolchainReceiptPath,
+      definition,
+      target,
+      sourceCommit: identity.commit,
+      workflowIdentity,
+    });
+  } else if (nativeToolchainReceiptPath) {
+    throw new Error("non-native provider component received a native toolchain receipt");
+  }
   const releaseRoot = path.resolve(outputDirectory);
   definition.target_triple = target;
   const staging = path.join(
@@ -283,6 +407,7 @@ export function buildComponent({
       sha256: sha256File(path.join(staging, relative)),
       size_bytes: statSync(path.join(staging, relative)).size,
     }));
+    validateWindowsRuntimeOwnership(payloadFiles, target);
     const sbom = {
       spdxVersion: "SPDX-2.3",
       dataLicense: "CC0-1.0",
@@ -314,12 +439,55 @@ export function buildComponent({
         throw new Error(`component entrypoint ${name} is not in the payload: ${relative}`);
       }
     }
+    validateNodeEntrypointRuntimeClosure(staging, entrypoints);
     let managerIntegrationApi;
     if (definition.manager_integration_api !== undefined) {
       managerIntegrationApi = validatedManagerIntegrationApi(
         definition.manager_integration_api,
         entrypoints,
       );
+    }
+    const dependencyIds = (definition.dependencies ?? []).map((dependency) => {
+      const componentId = typeof dependency === "string"
+        ? dependency
+        : dependency?.component_id;
+      if (typeof componentId !== "string" || !/^[A-Za-z0-9._-]+$/u.test(componentId)) {
+        throw new Error("component dependency identity is invalid");
+      }
+      return componentId;
+    });
+    let installerIntegration;
+    if (definition.installer_integration !== undefined) {
+      installerIntegration = structuredClone(definition.installer_integration);
+      const integrationEntrypoint = installerIntegration.entrypoint;
+      const invocation = installerIntegration.invocation;
+      const startupControl = installerIntegration.startup_control;
+      if (installerIntegration.schema !== "arena_provider_installer_integration_v1"
+          || installerIntegration.schema_version !== 1
+          || typeof integrationEntrypoint !== "string"
+          || !Object.hasOwn(entrypoints, integrationEntrypoint)
+          || JSON.stringify(installerIntegration.arguments) !== JSON.stringify(["--context"])
+          || !/^[A-Za-z0-9._-]+$/u.test(installerIntegration.workspace_name ?? "")
+          || installerIntegration.workspace_placement !== "product_data"
+          || typeof installerIntegration.configure_when_disabled !== "boolean"
+          || invocation?.kind !== "dependency_runtime"
+          || !dependencyIds.includes(invocation.runtime_component_id)
+          || !/^[A-Za-z0-9._-]+$/u.test(invocation.runtime_entrypoint ?? "")
+          || !Array.isArray(installerIntegration.dependency_bindings)
+          || !Array.isArray(installerIntegration.locator_bindings)
+          || startupControl?.schema !== "arena_provider_startup_control_v1"
+          || startupControl.schema_version !== 1
+          || !Object.hasOwn(entrypoints, startupControl.entrypoint)
+          || JSON.stringify(startupControl.actions?.install) !== JSON.stringify(["startup", "install"])
+          || JSON.stringify(startupControl.actions?.uninstall) !== JSON.stringify(["startup", "uninstall"])
+          || startupControl.workspace_argument?.flag !== "--workspace"
+          || startupControl.workspace_argument?.relative_path !== "."
+          || startupControl.configuration_argument !== "--config"
+          || startupControl.result?.envelope !== "root"
+          || startupControl.result?.require_configuration_match_on_install !== true
+          || startupControl.result?.require_live_on_install !== true) {
+        throw new Error("provider installer-integration contract is invalid");
+      }
     }
     let contractManifest;
     if (definition.contract_manifest !== undefined) {
@@ -366,6 +534,7 @@ export function buildComponent({
         );
       }
     }
+    const discovery = validatedDiscovery(definition.discovery, entrypoints, files);
     const manifest = {
       schema: "arena_install_component_v1",
       schema_version: 1,
@@ -373,12 +542,19 @@ export function buildComponent({
       component_version: version,
       target_triple: target,
       entrypoints,
+      discovery,
       ...(contractManifest ? { contract_manifest: contractManifest } : {}),
       ...(managerIntegrationApi
         ? { manager_integration_api: managerIntegrationApi }
         : {}),
       capabilities: definition.capabilities ?? [],
-      dependencies: definition.dependencies ?? [],
+      dependencies: dependencyIds,
+      ...(installerIntegration
+        ? {
+          installer_integration: installerIntegration,
+          workspace_name: installerIntegration.workspace_name,
+        }
+        : {}),
       ...(definition.default_model ? { default_model: definition.default_model } : {}),
       startup: definition.startup ?? {},
       data_paths: definition.data_paths ?? [],
@@ -424,6 +600,10 @@ export function buildComponent({
         node: process.version,
         platform: process.platform,
         architecture: process.arch,
+        ...(nativeToolchainEvidence ? {
+          native_receipt_sha256: nativeToolchainEvidence.sha256,
+          native_builds: nativeToolchainEvidence.receipt.builds,
+        } : {}),
       },
       dependency_lock_identities: definition.dependency_lock_identities ?? {},
       build_flags: definition.build_flags ?? [],
@@ -461,6 +641,9 @@ function main() {
     sourceDateEpoch: args["source-date-epoch"],
     workflowIdentity: args["workflow-identity"],
     testReceiptPath: path.resolve(args["test-receipt"]),
+    nativeToolchainReceiptPath: args["native-toolchain-receipt"]
+      ? path.resolve(args["native-toolchain-receipt"])
+      : undefined,
     allowDirty: args["allow-dirty"] === "true",
   });
   process.stdout.write(`${JSON.stringify(result.result)}\n`);

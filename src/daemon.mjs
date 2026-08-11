@@ -23,6 +23,7 @@ import {
   acquireGpuResourceIsolation,
   shutdownChildProcessTree,
 } from "@uci-arena/background-service-runtime/resource-isolation";
+import { validateStoredProfile } from "@uci-arena/time-profile-contract";
 import {
   adapterCommand,
   harvestAdapter,
@@ -30,6 +31,10 @@ import {
 } from "./adapters.mjs";
 import { resolveJobTarget } from "./identity.mjs";
 import { ResourceGovernor } from "./resource_governor.mjs";
+import {
+  timingProfileCanPublish,
+  timingProfilePermissions,
+} from "./time_profile_policy.mjs";
 
 function delay(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -194,16 +199,14 @@ export async function publishQualifiedProfile({
   config,
   resource,
 }) {
-  if (candidate?.schema !== "uci_time_profile_v3"
-      || candidate.qualified !== true
-      || candidate.gates?.passed !== true
-      || candidate.permissions?.provider_safety_qualified !== true
-      || candidate.permissions?.adaptive_play_qualified !== false
+  const validated = validateStoredProfile(candidate);
+  const permissions = timingProfilePermissions(validated);
+  if (!timingProfileCanPublish(validated)
       || resource?.default_tuning_authority !== true) {
     throw new Error("timing profile candidate lacks publication authority");
   }
-  if (String(candidate.identity?.model?.model_id ?? "") !== String(target.modelId)
-      || String(candidate.identity?.model?.model_fingerprint ?? "")
+  if (String(validated.identity?.model?.model_id ?? "") !== String(target.modelId)
+      || String(validated.identity?.model?.model_fingerprint ?? "")
         !== String(target.modelFingerprint)) {
     throw new Error("timing profile candidate identity does not match target");
   }
@@ -221,7 +224,8 @@ export async function publishQualifiedProfile({
     prior = { sha256: digest, path: archive };
   }
   const published = {
-    ...candidate,
+    ...validated,
+    permissions,
     service_publication: {
       schema: "uci_arena_evidence_profile_publication_v1",
       job_id: job.id,
@@ -363,7 +367,10 @@ async function executeJob({
       };
     }
     if (exit.code !== 0) {
-      const reason = `adapter exited with ${exit.code ?? exit.signal ?? "unknown"}`;
+      const producerFailure = harvested?.producerFailures?.[0];
+      const reason = producerFailure
+        ? `adapter ${job.adapter} reported failure: ${producerFailure}`
+        : `adapter exited with ${exit.code ?? exit.signal ?? "unknown"}`;
       catalog.finishAttempt(attemptId, {
         state: "failed",
         exitCode: exit.code,

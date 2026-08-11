@@ -90,6 +90,14 @@ Only an exact-identity `uci_time_profile_v3` candidate with passing qualifier
 and resource gates can be atomically published. The service never changes a UCI
 default or enables adaptive play.
 
+Timing jobs use the runtime qualifier's candidate and identity-bound checkpoint
+contract. Candidates never write the live cache directly. Their sibling attempt
+records are retained as content-addressed diagnostic observations, including on
+producer failure, while only the final profile can gain timing or publication
+authority. Older valid v3 profiles that predate the additive permission
+projection remain discoverable by deriving provider and forecast status from
+the complete current gate set; explicit false permissions are never upgraded.
+
 The public profile projection exposes validated live profiles and any explicitly
 configured in-place imports without reading raw evidence or scanning disks:
 
@@ -172,3 +180,18 @@ startup removal, and default uninstall preserve this workspace. Audited prune
 is the only ordinary service operation that removes retained evidence; an
 explicit installer data-removal choice is required to remove the complete
 workspace.
+
+## Local validation
+
+`npm run check` leaves the Engine-owned clocked-runner integration test skipped
+when no Evidence Runtime component is available. To exercise an exact local
+runtime without changing production configuration precedence, set only the
+test input for that command:
+
+```powershell
+$env:UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT = "C:\path\to\uci_arena_evidence.runtime"
+npm run check
+```
+
+`UCI_ARENA_EVIDENCE_RUNTIME_ROOT` remains the production invocation override
+and is intentionally not used as a test-fixture selector.

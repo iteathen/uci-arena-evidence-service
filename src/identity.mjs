@@ -104,10 +104,28 @@ export function resolveActiveTarget(config) {
 }
 
 export function resolveJobTarget(job, catalog, config) {
-  const target = job.targetId ? catalog.target(job.targetId) : resolveActiveTarget(config).target;
-  if (!target) {
+  let target = null;
+  let resolutionReason = "";
+  if (job.targetId) {
+    target = catalog.target(job.targetId);
+    if (!target) resolutionReason = `explicit target ${job.targetId} is missing`;
+  } else {
     const active = resolveActiveTarget(config);
-    return { target: null, reason: active.reason || `explicit target ${job.targetId} is missing` };
+    if (active.target) {
+      target = active.target;
+    } else {
+      const explicitTargets = catalog.targets({ limit: 2 });
+      if (explicitTargets.length === 1) {
+        [target] = explicitTargets;
+      } else if (explicitTargets.length > 1) {
+        resolutionReason = `${active.reason}; multiple explicit targets require a selected target UUID`;
+      } else {
+        resolutionReason = active.reason;
+      }
+    }
+  }
+  if (!target) {
+    return { target: null, reason: resolutionReason || "no exact target is available" };
   }
   if (!existsSync(target.enginePath)) {
     return { target: null, reason: `target engine is missing: ${target.enginePath}` };
