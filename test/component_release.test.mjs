@@ -111,6 +111,7 @@ test("provider release proves independent target-scoped native reproducibility",
     definition.installer_integration.invocation.runtime_component_id,
     "node_runtime.private",
   );
+  assert.equal(definition.installer_integration.workspace_placement, "product_data");
   assert.deepEqual(
     definition.include.find((mapping) => mapping.source === "vendor/time-profile-contract"),
     {

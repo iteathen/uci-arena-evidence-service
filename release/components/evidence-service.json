@@ -45,6 +45,7 @@
     },
     "arguments": ["--context"],
     "workspace_name": "evidence-service",
+    "workspace_placement": "product_data",
     "configure_when_disabled": false,
     "dependency_bindings": [
       {"name": "evidence_runtime_root", "component_id": "uci_arena_evidence.runtime", "source": "active_root", "required": true},
