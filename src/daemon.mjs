@@ -13,7 +13,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { open, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -35,6 +35,15 @@ import {
   timingProfileCanPublish,
   timingProfilePermissions,
 } from "./time_profile_policy.mjs";
+import {
+  currentProcessIdentity,
+  probeProcessInstance,
+  sameProcessInstance,
+  validProcessIdentity,
+} from "./process_identity.mjs";
+
+const MAXIMUM_DAEMON_LOCK_BYTES = 16_384;
+const DAEMON_LOCK_SETTLE_MS = 10_000;
 
 function delay(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
@@ -44,43 +53,112 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function processAlive(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+async function readLockPacket(filename) {
   try {
-    process.kill(pid, 0);
-    return true;
+    const link = await lstat(filename);
+    if (!link.isFile() || link.isSymbolicLink() || link.size > MAXIMUM_DAEMON_LOCK_BYTES) {
+      return { value: null, raw: null, modifiedMs: link.mtimeMs };
+    }
+    const raw = await readFile(filename, "utf8");
+    try {
+      return { value: JSON.parse(raw), raw, modifiedMs: link.mtimeMs };
+    } catch {
+      return { value: null, raw, modifiedMs: link.mtimeMs };
+    }
   } catch (error) {
-    return error?.code === "EPERM";
+    if (error?.code === "ENOENT") return null;
+    return { value: null, raw: null, modifiedMs: 0 };
   }
 }
 
-async function acquireDaemonLock(config) {
+async function legacyHeartbeatIsFresh(config, lock, now) {
+  const heartbeat = await readLockPacket(config.daemonHeartbeatFile);
+  const heartbeatAt = Date.parse(String(heartbeat?.value?.heartbeat_at ?? ""));
+  return heartbeat?.value?.pid === lock?.pid
+    && Number.isFinite(heartbeatAt)
+    && now - heartbeatAt <= config.daemon.staleMs;
+}
+
+async function retireLock(filename, expected) {
+  if (typeof expected?.raw !== "string") return false;
+  const current = await readLockPacket(filename);
+  if (typeof current?.raw !== "string" || current.raw !== expected.raw) return false;
+  const retired = `${filename}.retired-${process.pid}-${randomUUID()}`;
+  try {
+    await rename(filename, retired);
+  } catch (error) {
+    if (error?.code === "ENOENT") return false;
+    throw error;
+  }
+  await rm(retired, { force: true });
+  return true;
+}
+
+export async function acquireDaemonLock(config, {
+  identity = currentProcessIdentity(),
+  probe = probeProcessInstance,
+  now = Date.now,
+} = {}) {
+  if (!validProcessIdentity(identity, process.pid)) {
+    throw new Error("Arena Evidence daemon process identity is invalid");
+  }
   const filename = path.join(config.paths.locks, "daemon.lock");
+  const nonce = randomUUID();
   let handle;
-  for (let attempt = 0; attempt < 2; ++attempt) {
+  for (let attempt = 0; attempt < 3; ++attempt) {
     try {
-      handle = await open(filename, "wx");
+      handle = await open(filename, "wx", 0o600);
       break;
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      let value = null;
-      let age = 0;
-      try {
-        value = JSON.parse(await readFile(filename, "utf8"));
-        age = Date.now() - (await stat(filename)).mtimeMs;
-      } catch {}
-      const alive = processAlive(Number(value?.pid));
-      if (alive || age < 10_000 || attempt > 0) {
+      const packet = await readLockPacket(filename);
+      if (!packet) continue;
+      const age = Math.max(0, now() - packet.modifiedMs);
+      const lock = packet.value;
+      const recordedIdentity = validProcessIdentity(lock?.processIdentity, Number(lock?.pid))
+        ? lock.processIdentity
+        : null;
+      let reclaimable = false;
+      if (recordedIdentity) {
+        const observed = probe(recordedIdentity.pid);
+        if (observed?.state === "unverifiable") {
+          throw new Error(`another Arena Evidence daemon has unverifiable ownership of ${filename}`);
+        }
+        reclaimable = observed?.state === "absent"
+          || (observed?.state === "present"
+            && !sameProcessInstance(recordedIdentity, observed.identity));
+      } else if (age >= DAEMON_LOCK_SETTLE_MS) {
+        const observed = Number.isSafeInteger(lock?.pid) && lock.pid > 0
+          ? probe(lock.pid)
+          : { state: "absent" };
+        reclaimable = observed?.state === "absent"
+          || (age >= config.daemon.staleMs
+            && !await legacyHeartbeatIsFresh(config, lock, now()));
+      }
+      if (!reclaimable || age < DAEMON_LOCK_SETTLE_MS || attempt > 1) {
         throw new Error(`another Arena Evidence daemon owns ${filename}`);
       }
-      await rm(filename, { force: true });
+      if (!await retireLock(filename, packet)) continue;
     }
   }
   if (!handle) throw new Error(`could not acquire daemon lock ${filename}`);
-  await handle.writeFile(`${JSON.stringify({ pid: process.pid, started_at: nowIso() })}\n`);
-  return async () => {
-    await handle.close();
-    await rm(filename, { force: true });
+  const value = {
+    schema: "uci_arena_evidence_daemon_lock_v2",
+    pid: process.pid,
+    nonce,
+    started_at: new Date(now()).toISOString(),
+    processIdentity: identity,
+  };
+  const raw = `${JSON.stringify(value)}\n`;
+  await handle.writeFile(raw);
+  await handle.sync();
+  return {
+    nonce,
+    processIdentity: identity,
+    release: async () => {
+      await handle.close();
+      await retireLock(filename, { raw });
+    },
   };
 }
 
@@ -534,16 +612,26 @@ export async function runDaemon(catalog, config, {
   once = false,
   dependencies = {},
 } = {}) {
-  const releaseLock = await acquireDaemonLock(config);
+  const daemonLock = await acquireDaemonLock(config);
   catalog.recoverInterruptedJobs();
   const governor = dependencies.governor ?? new ResourceGovernor(config, catalog);
   const startedAt = nowIso();
   const heartbeat = async () => {
     const heartbeatAt = nowIso();
-    catalog.updateDaemonState({ pid: process.pid, startedAt, heartbeatAt });
+    catalog.updateDaemonState({
+      pid: process.pid,
+      processIdentity: daemonLock.processIdentity,
+      startedAt,
+      heartbeatAt,
+    });
     await writeJsonAtomic(
       config.daemonHeartbeatFile,
-      { pid: process.pid, heartbeat_at: heartbeatAt },
+      {
+        pid: process.pid,
+        nonce: daemonLock.nonce,
+        process_identity: daemonLock.processIdentity,
+        heartbeat_at: heartbeatAt,
+      },
     );
   };
   await heartbeat();
@@ -581,6 +669,6 @@ export async function runDaemon(catalog, config, {
   } finally {
     clearInterval(heartbeatTimer);
     governor.close();
-    await releaseLock();
+    await daemonLock.release();
   }
 }

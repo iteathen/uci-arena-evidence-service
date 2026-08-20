@@ -20,11 +20,13 @@ import {
   orchestrationStatusApi,
   registerTargetApi,
   statusApi,
+  startupRecoverApi,
   validateConfigApi,
 } from "./manager_api.mjs";
 import { listQualifiedProfiles } from "./profiles.mjs";
 import {
   installStartup,
+  recoverStartup,
   startupStatus,
   uninstallStartup,
 } from "./platform_startup.mjs";
@@ -105,7 +107,7 @@ function usage() {
   arena-evidence api campaign enqueue [--target UUID]
   arena-evidence api job control --id UUID --action cancel|retry
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
-  arena-evidence startup install|status|uninstall
+  arena-evidence startup install|status|recover|uninstall
 
 Global options: --workspace PATH --config FILE`;
 }
@@ -136,6 +138,9 @@ async function main(argv = process.argv.slice(2)) {
     } else if (command === "api" && subcommand === "config"
         && positional[2] === "validate") {
       output(validateConfigApi(config));
+    } else if (command === "api" && subcommand === "startup"
+        && positional[2] === "recover") {
+      output(await startupRecoverApi(config, recoverStartup));
     } else if (command === "api" && subcommand === "orchestration"
         && positional[2] === "status") {
       output(orchestrationStatusApi(catalog));
@@ -277,6 +282,8 @@ async function main(argv = process.argv.slice(2)) {
       output(await installStartup(config));
     } else if (command === "startup" && subcommand === "status") {
       output(await startupStatus(config));
+    } else if (command === "startup" && subcommand === "recover") {
+      output(await recoverStartup(config));
     } else if (command === "startup" && subcommand === "uninstall") {
       output(await uninstallStartup(config));
     } else {

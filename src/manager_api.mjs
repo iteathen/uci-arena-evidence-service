@@ -5,6 +5,7 @@ import path from "node:path";
 import { listQualifiedProfiles } from "./profiles.mjs";
 import { enqueueFirstCampaign } from "./campaign.mjs";
 import { sha256File } from "./identity.mjs";
+import { recoverStartup } from "./platform_startup.mjs";
 
 const API_SCHEMA = "uci_arena_manager_service_api_v1";
 const API_VERSION = "1.0";
@@ -23,6 +24,7 @@ const OPERATIONS = Object.freeze([
   "target_register",
   "campaign_enqueue",
   "job_control",
+  "startup_recover",
 ]);
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
@@ -204,6 +206,15 @@ export function validateConfigApi(config) {
     configuration_schema: "uci_arena_evidence_service_config_v1",
     workspace: config.workspace,
     runtime_component_id: "uci_arena_evidence.runtime",
+  });
+}
+
+export async function startupRecoverApi(config, recoverImpl = recoverStartup) {
+  const startup = await recoverImpl(config);
+  return envelope("startup_recover", {
+    startup,
+    recovery_requested: startup.recoveryRequested === true,
+    registration_mutated: startup.registrationMutated === true,
   });
 }
 
