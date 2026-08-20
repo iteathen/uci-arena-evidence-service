@@ -303,9 +303,12 @@ main().then(
         .filter((value) => value && !value.startsWith("--"))
         .join("_")
       : null;
+    const diagnostic = error?.code === "EVIDENCE_CATALOG_CORRUPT"
+      ? error.message
+      : error?.stack ?? error;
     process.stderr.write(apiOperation
       ? `${JSON.stringify(apiError(apiOperation, error), null, 2)}\n`
-      : `arena evidence service failed: ${error?.stack ?? error}\n`);
+      : `arena evidence service failed: ${diagnostic}\n`);
     process.exitCode = 1;
   },
 );

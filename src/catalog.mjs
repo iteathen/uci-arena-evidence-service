@@ -17,16 +17,132 @@ const JOB_STATES = new Set([
   "failed",
   "cancelled",
 ]);
+const JSON_LIMITS = Object.freeze({
+  job_configuration: 262_144,
+  target_uci_options: 262_144,
+  daemon_report: 262_144,
+  observation_metrics: 4_194_304,
+  default: 1_048_576,
+});
+const MAX_JSON_DEPTH = 32;
+const MAX_JSON_VALUES = 100_000;
+const MAX_OBJECT_KEYS = 4_096;
+const MAX_ARRAY_ENTRIES = 65_536;
+const MAX_STRING_CHARACTERS = 1_048_576;
+const UCI_OPTION_TYPES = new Set(["string", "number", "boolean"]);
 
 function nowIso() {
   return new Date().toISOString();
 }
 
-function parseJson(text, fallback = {}) {
+export class CatalogCorruptionError extends Error {
+  constructor(domain) {
+    super("Evidence catalog contains incompatible persisted JSON");
+    this.name = "CatalogCorruptionError";
+    this.code = "EVIDENCE_CATALOG_CORRUPT";
+    this.domain = domain;
+  }
+}
+
+function plainObject(value) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+function validateTree(root) {
+  const pending = [{ value: root, depth: 0 }];
+  let values = 0;
+  while (pending.length > 0) {
+    const { value, depth } = pending.pop();
+    values += 1;
+    if (values > MAX_JSON_VALUES || depth > MAX_JSON_DEPTH) throw new Error("JSON tree limit");
+    if (typeof value === "string" && value.length > MAX_STRING_CHARACTERS) {
+      throw new Error("JSON string limit");
+    }
+    if (typeof value === "number" && !Number.isFinite(value)) {
+      throw new Error("JSON numeric range");
+    }
+    if (!["string", "number", "boolean", "object"].includes(typeof value)) {
+      throw new Error("JSON value type");
+    }
+    if (value !== null && typeof value === "object"
+        && !Array.isArray(value) && !plainObject(value)) {
+      throw new Error("JSON object type");
+    }
+    if (Array.isArray(value)) {
+      if (value.length > MAX_ARRAY_ENTRIES) throw new Error("JSON array limit");
+      for (const entry of value) pending.push({ value: entry, depth: depth + 1 });
+    } else if (plainObject(value)) {
+      const entries = Object.entries(value);
+      if (entries.length > MAX_OBJECT_KEYS) throw new Error("JSON object limit");
+      for (const [key, entry] of entries) {
+        if (!key || key.length > 256 || /[\u0000-\u001f\u007f]/u.test(key)) {
+          throw new Error("JSON key limit");
+        }
+        pending.push({ value: entry, depth: depth + 1 });
+      }
+    }
+  }
+}
+
+function validateAuthority(value) {
+  for (const field of ["diagnostic", "timing", "strength", "profile_publication"]) {
+    if (Object.hasOwn(value, field) && typeof value[field] !== "boolean") {
+      throw new Error("authority boolean");
+    }
+  }
+  if (Object.hasOwn(value, "reasons")
+      && (!Array.isArray(value.reasons)
+        || value.reasons.length > 256
+        || value.reasons.some((reason) => typeof reason !== "string" || reason.length > 512))) {
+    throw new Error("authority reasons");
+  }
+}
+
+function validateUciOptions(value) {
+  const entries = Object.entries(value);
+  if (entries.length > 128) throw new Error("UCI option count");
+  for (const [name, option] of entries) {
+    if (name.length > 128 || !/^[A-Za-z][A-Za-z0-9 _-]*$/u.test(name)
+        || !UCI_OPTION_TYPES.has(typeof option)
+        || (typeof option === "number" && !Number.isSafeInteger(option))
+        || (typeof option === "string" && option.length > 512)) {
+      throw new Error("UCI option shape");
+    }
+  }
+}
+
+function parseJson(text, domain) {
   try {
-    return JSON.parse(text);
+    const maximumBytes = JSON_LIMITS[domain] ?? JSON_LIMITS.default;
+    if (typeof text !== "string" || Buffer.byteLength(text, "utf8") > maximumBytes) {
+      throw new Error("JSON byte limit");
+    }
+    const value = JSON.parse(text);
+    if (!plainObject(value)) throw new Error("JSON object required");
+    validateTree(value);
+    if (domain === "target_uci_options") validateUciOptions(value);
+    if (domain === "dataset_authority" || domain === "observation_authority") {
+      validateAuthority(value);
+    }
+    return value;
   } catch {
-    return fallback;
+    throw new CatalogCorruptionError(domain);
+  }
+}
+
+function serializeJson(value, domain) {
+  try {
+    if (!plainObject(value)) throw new Error("JSON object required");
+    validateTree(value);
+    const serialized = JSON.stringify(value);
+    parseJson(serialized, domain);
+    return serialized;
+  } catch {
+    const error = new Error("Evidence catalog refused incompatible JSON input");
+    error.code = "EVIDENCE_CATALOG_JSON_INVALID";
+    throw error;
   }
 }
 
@@ -59,7 +175,7 @@ function jobRow(row) {
     shardId: row.shard_id,
     datasetId: row.dataset_id,
     fingerprint: row.fingerprint,
-    config: parseJson(row.config_json),
+    config: parseJson(row.config_json, "job_configuration"),
     attempts: Number(row.attempts),
     waitReason: row.wait_reason,
     lastError: row.last_error,
@@ -80,7 +196,7 @@ function targetRow(row) {
     engineSha256: row.engine_sha256,
     provider: row.provider,
     hardwareDriverFingerprint: row.hardware_driver_fingerprint,
-    uciOptions: parseJson(row.uci_options_json),
+    uciOptions: parseJson(row.uci_options_json, "target_uci_options"),
     createdAt: row.created_at,
   };
 }
@@ -325,7 +441,7 @@ export class Catalog {
       target.engineSha256.toLowerCase(),
       String(target.provider),
       String(target.hardwareDriverFingerprint || ""),
-      JSON.stringify(target.uciOptions ?? {}),
+      serializeJson(target.uciOptions ?? {}, "target_uci_options"),
       nowIso(),
     );
     return this.target(id);
@@ -374,7 +490,12 @@ export class Catalog {
       INSERT INTO datasets(
         id,schema,campaign,state,target_identity_json,authority_json,created_at
       ) VALUES(?,'uci_arena_evidence_dataset_v1',?,'collecting',?,'{}',?)
-    `).run(id, campaign, JSON.stringify(targetIdentity), nowIso());
+    `).run(
+      id,
+      campaign,
+      serializeJson(targetIdentity, "dataset_target_identity"),
+      nowIso(),
+    );
     return id;
   }
 
@@ -408,7 +529,7 @@ export class Catalog {
       shardId,
       datasetId,
       fingerprint.toLowerCase(),
-      JSON.stringify(config),
+      serializeJson(config, "job_configuration"),
       at,
       at,
     );
@@ -545,7 +666,14 @@ export class Catalog {
   finishAttempt(attemptId, { state, exitCode = null, reason = "", resource = {} }) {
     this.database.prepare(`
       UPDATE attempts SET state=?,completed_at=?,exit_code=?,reason=?,resource_json=? WHERE id=?
-    `).run(state, nowIso(), exitCode, String(reason), JSON.stringify(resource), attemptId);
+    `).run(
+      state,
+      nowIso(),
+      exitCode,
+      String(reason),
+      serializeJson(resource, "attempt_resource"),
+      attemptId,
+    );
   }
 
   recoverInterruptedJobs() {
@@ -598,12 +726,12 @@ export class Catalog {
         envelope.adapter,
         envelope.source_schema,
         envelope.raw_sha256,
-        JSON.stringify(envelope.target_identity),
-        JSON.stringify(envelope.axes),
-        JSON.stringify(envelope.metrics),
-        JSON.stringify(envelope.outcome),
-        JSON.stringify(envelope.resource),
-        JSON.stringify(envelope.authority),
+        serializeJson(envelope.target_identity, "observation_target_identity"),
+        serializeJson(envelope.axes, "observation_axes"),
+        serializeJson(envelope.metrics, "observation_metrics"),
+        serializeJson(envelope.outcome, "observation_outcome"),
+        serializeJson(envelope.resource, "observation_resource"),
+        serializeJson(envelope.authority, "observation_authority"),
       );
       if (inserted.changes > 0) {
         this.database.prepare(`
@@ -621,7 +749,7 @@ export class Catalog {
   completeDataset(id, authority) {
     this.database.prepare(`
       UPDATE datasets SET state='completed',authority_json=?,completed_at=? WHERE id=?
-    `).run(JSON.stringify(authority), nowIso(), id);
+    `).run(serializeJson(authority, "dataset_authority"), nowIso(), id);
   }
 
   datasets() {
@@ -630,8 +758,8 @@ export class Catalog {
       schema: row.schema,
       campaign: row.campaign,
       state: row.state,
-      targetIdentity: parseJson(row.target_identity_json),
-      authority: parseJson(row.authority_json),
+      targetIdentity: parseJson(row.target_identity_json, "dataset_target_identity"),
+      authority: parseJson(row.authority_json, "dataset_authority"),
       observationCount: Number(row.observation_count),
       createdAt: row.created_at,
       completedAt: row.completed_at,
@@ -653,12 +781,12 @@ export class Catalog {
       adapter: row.adapter,
       source_schema: row.source_schema,
       raw_sha256: row.raw_sha256,
-      target_identity: parseJson(row.target_identity_json),
-      axes: parseJson(row.axes_json),
-      metrics: parseJson(row.metrics_json),
-      outcome: parseJson(row.outcome_json),
-      resource: parseJson(row.resource_json),
-      authority: parseJson(row.authority_json),
+      target_identity: parseJson(row.target_identity_json, "observation_target_identity"),
+      axes: parseJson(row.axes_json, "observation_axes"),
+      metrics: parseJson(row.metrics_json, "observation_metrics"),
+      outcome: parseJson(row.outcome_json, "observation_outcome"),
+      resource: parseJson(row.resource_json, "observation_resource"),
+      authority: parseJson(row.authority_json, "observation_authority"),
     }));
     return { ...dataset, observations };
   }
@@ -681,7 +809,7 @@ export class Catalog {
       cycleStartedAt: row.cycle_started_at,
       cycleCompletedAt: row.cycle_completed_at,
       lastError: row.last_error,
-      lastReport: parseJson(row.last_report_json),
+      lastReport: parseJson(row.last_report_json, "daemon_report"),
       stale,
       processAlive: live,
       active: !stale && live && !["stopped", "failed"].includes(row.phase),
@@ -705,9 +833,11 @@ export class Catalog {
     const entries = Object.entries(values).filter(([key]) => Object.hasOwn(mapping, key));
     if (entries.length === 0) return this.daemonState();
     const fields = entries.map(([key]) => `${mapping[key]}=?`);
-    const parameters = entries.map(([key, value]) => (
-      key === "lastReport" || key === "processIdentity" ? JSON.stringify(value) : value
-    ));
+    const parameters = entries.map(([key, value]) => {
+      if (key === "lastReport") return serializeJson(value, "daemon_report");
+      if (key === "processIdentity") return JSON.stringify(value);
+      return value;
+    });
     this.database.prepare(`UPDATE daemon_state SET ${fields.join(",")} WHERE singleton=1`)
       .run(...parameters);
     return this.daemonState();
