@@ -1,11 +1,18 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { packageRoot } from "./config.mjs";
+import {
+  probeProcessInstance,
+  processIdentityFromJson,
+  processInstanceIsCurrent,
+  sameProcessInstance,
+} from "./process_identity.mjs";
 
 const execFileAsync = promisify(execFile);
 export const windowsTaskName = "UCI Arena Evidence Service";
@@ -112,45 +119,69 @@ export function processAlive(pid) {
   }
 }
 
-export async function readDaemonOwnerPid(config) {
+async function readDaemonOwner(config) {
   try {
-    const value = JSON.parse(await readFile(
-      path.join(config.paths.locks, daemonLockName),
-      "utf8",
-    ));
+    const filename = path.join(config.paths.locks, daemonLockName);
+    const info = await lstat(filename);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 16_384) return null;
+    const raw = await readFile(filename, "utf8");
+    const value = JSON.parse(raw);
     const pid = Number(value?.pid);
-    return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+    return {
+      pid,
+      identity: processIdentityFromJson(value.processIdentity, pid),
+      nonce: typeof value.nonce === "string" ? value.nonce : "",
+      raw,
+    };
   } catch {
     return null;
   }
 }
 
+export async function readDaemonOwnerPid(config) {
+  return (await readDaemonOwner(config))?.pid ?? null;
+}
+
 export async function waitForProcessExit(
   pid,
-  { timeoutMs = 2_000, pollMs = 25, alive = processAlive } = {},
+  {
+    timeoutMs = 2_000,
+    pollMs = 25,
+    alive = processAlive,
+    identity = null,
+    probe = probeProcessInstance,
+  } = {},
 ) {
+  const current = () => {
+    if (!identity) return alive(pid);
+    const observed = probe(pid);
+    return observed?.state === "present" && sameProcessInstance(identity, observed.identity);
+  };
   const deadline = Date.now() + timeoutMs;
-  while (alive(pid) && Date.now() < deadline) {
+  while (current() && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, pollMs));
   }
-  return !alive(pid);
+  return !current();
 }
 
 async function waitForDaemonActive(config, timeoutMs = 5_000) {
   const deadline = Date.now() + timeoutMs;
   do {
-    const pid = await readDaemonOwnerPid(config);
-    if (pid && processAlive(pid)) return pid;
+    const owner = await readDaemonOwner(config);
+    if (owner?.identity && processInstanceIsCurrent(owner.identity)) return owner.pid;
     await new Promise((resolve) => setTimeout(resolve, 25));
   } while (Date.now() < deadline);
   return null;
 }
 
-async function removeDeadDaemonLock(config, expectedPid) {
-  if (!expectedPid || processAlive(expectedPid)) return;
+async function removeDeadDaemonLock(config, expected) {
+  if (!expected?.pid) return;
+  if (expected.identity && processInstanceIsCurrent(expected.identity)) return;
   const filename = path.join(config.paths.locks, daemonLockName);
-  if (await readDaemonOwnerPid(config) !== expectedPid) return;
-  const retired = `${filename}.retired-${process.pid}`;
+  const current = await readDaemonOwner(config);
+  if (!current || current.raw !== expected.raw) return;
+  const retired = `${filename}.retired-${process.pid}-${randomUUID()}`;
   try {
     await rename(filename, retired);
     await rm(retired, { force: true });
@@ -216,12 +247,12 @@ async function windowsStatus(config) {
       { windowsHide: true, timeout: 10_000 },
     );
     const action = windowsTaskActionFromXml(stdout);
-    const daemonPid = await readDaemonOwnerPid(config);
+    const daemon = await readDaemonOwner(config);
     return {
       platform: "windows",
       installed: true,
       taskName: windowsTaskName,
-      active: Boolean(daemonPid && processAlive(daemonPid)),
+      active: Boolean(daemon?.identity && processInstanceIsCurrent(daemon.identity)),
       matchesCurrentConfiguration: windowsTaskMatchesConfiguration(stdout, config),
       action,
     };
@@ -278,17 +309,17 @@ async function installWindows(config) {
 }
 
 async function uninstallWindows(config) {
-  const daemonPid = await readDaemonOwnerPid(config);
+  const daemon = await readDaemonOwner(config);
   try {
     await execFileAsync("schtasks.exe", ["/End", "/TN", windowsTaskName], {
       windowsHide: true,
       timeout: 10_000,
     });
   } catch {}
-  if (daemonPid && !await waitForProcessExit(daemonPid)) {
-    throw new Error(`Evidence daemon ${daemonPid} did not stop within two seconds`);
+  if (daemon?.pid && !await waitForProcessExit(daemon.pid, { identity: daemon.identity })) {
+    throw new Error(`Evidence daemon ${daemon.pid} did not stop within two seconds`);
   }
-  await removeDeadDaemonLock(config, daemonPid);
+  await removeDeadDaemonLock(config, daemon);
   try {
     await execFileAsync("schtasks.exe", ["/Delete", "/TN", windowsTaskName, "/F"], {
       windowsHide: true,
@@ -385,6 +416,40 @@ export async function installStartup(config) {
   if (process.platform === "win32") return installWindows(config);
   if (process.platform === "linux") return installLinux(config);
   throw new Error(`startup registration is unsupported on ${process.platform}`);
+}
+
+export async function recoverStartup(config, {
+  platform = process.platform,
+  statusImpl = startupStatus,
+  executeImpl = execFileAsync,
+  waitForActiveImpl = waitForDaemonActive,
+} = {}) {
+  const registered = await statusImpl(config);
+  if (!registered.installed) throw new Error("Evidence startup is not registered");
+  if (registered.matchesCurrentConfiguration !== true) {
+    throw new Error("Evidence startup registration does not match the current configuration");
+  }
+  if (registered.enabled === false) throw new Error("Evidence startup registration is disabled");
+  if (platform === "win32") {
+    await executeImpl("schtasks.exe", ["/Run", "/TN", windowsTaskName], {
+      windowsHide: true,
+      timeout: 10_000,
+    });
+  } else if (platform === "linux") {
+    await executeImpl("systemctl", ["--user", "start", linuxUnitName], {
+      timeout: 20_000,
+    });
+  } else {
+    throw new Error(`startup recovery is unsupported on ${platform}`);
+  }
+  if (!await waitForActiveImpl(config)) {
+    throw new Error("Evidence startup recovery did not produce a live daemon within five seconds");
+  }
+  return {
+    ...(await statusImpl(config)),
+    recoveryRequested: true,
+    registrationMutated: false,
+  };
 }
 
 export async function uninstallStartup(config) {

@@ -16,6 +16,7 @@ import {
   listOutputsApi,
   orchestrationStatusApi,
   registerTargetApi,
+  startupRecoverApi,
   statusApi,
   validateConfigApi,
 } from "../src/manager_api.mjs";
@@ -50,6 +51,22 @@ test("Manager API describes a stable one-way JSON contract", async (t) => {
   assert.equal(status.daemon.processAlive, false);
   assert.equal(status.daemon.stale, true);
   assert.equal(validateConfigApi(config).payload.runtime_component_id, "uci_arena_evidence.runtime");
+});
+
+test("Manager API startup recovery preserves the provider-owned operation contract", async (t) => {
+  const { config } = await fixture(t);
+  const response = await startupRecoverApi(config, async (candidate) => {
+    assert.equal(candidate, config);
+    return {
+      platform: "windows",
+      installed: true,
+      recoveryRequested: true,
+      registrationMutated: false,
+    };
+  });
+  assert.equal(response.operation, "startup_recover");
+  assert.equal(response.payload.recovery_requested, true);
+  assert.equal(response.payload.registration_mutated, false);
 });
 
 test("Manager API projects dataset authority without exposing observations", async (t) => {

@@ -2,8 +2,12 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import {
+  processIdentityFromJson,
+  processInstanceIsCurrent,
+} from "./process_identity.mjs";
 
-const CATALOG_SCHEMA_VERSION = 1;
+const CATALOG_SCHEMA_VERSION = 2;
 const JOB_STATES = new Set([
   "queued",
   "waiting_for_target",
@@ -16,16 +20,6 @@ const JOB_STATES = new Set([
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function processAlive(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
 }
 
 function parseJson(text, fallback = {}) {
@@ -199,6 +193,7 @@ export class Catalog {
       CREATE TABLE IF NOT EXISTS daemon_state (
         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
         pid INTEGER,
+        process_identity_json TEXT NOT NULL DEFAULT '',
         phase TEXT NOT NULL DEFAULT 'stopped',
         current_job_id TEXT,
         resource_mode TEXT NOT NULL DEFAULT '',
@@ -219,10 +214,21 @@ export class Catalog {
         result_json TEXT NOT NULL
       ) WITHOUT ROWID;
     `);
-    const version = this.database.prepare("SELECT value FROM metadata WHERE key='schema_version'").get();
+    let version = this.database.prepare("SELECT value FROM metadata WHERE key='schema_version'").get();
     if (!version) {
       this.database.prepare("INSERT INTO metadata(key,value) VALUES('schema_version',?)")
         .run(String(CATALOG_SCHEMA_VERSION));
+    } else if (Number(version.value) === 1) {
+      const columns = new Set(this.database.prepare("PRAGMA table_info(daemon_state)").all()
+        .map((column) => column.name));
+      if (!columns.has("process_identity_json")) {
+        this.database.exec(
+          "ALTER TABLE daemon_state ADD COLUMN process_identity_json TEXT NOT NULL DEFAULT ''",
+        );
+      }
+      this.database.prepare("UPDATE metadata SET value=? WHERE key='schema_version'")
+        .run(String(CATALOG_SCHEMA_VERSION));
+      version = { value: String(CATALOG_SCHEMA_VERSION) };
     } else if (Number(version.value) !== CATALOG_SCHEMA_VERSION) {
       throw new Error(`unsupported evidence catalog schema ${version.value}`);
     }
@@ -662,7 +668,9 @@ export class Catalog {
     const heartbeatMs = Date.parse(row.heartbeat_at ?? "");
     const stale = !Number.isFinite(heartbeatMs)
       || Date.now() - heartbeatMs > this.config.daemon.staleMs;
-    const live = processAlive(Number(row.pid));
+    const live = processInstanceIsCurrent(
+      processIdentityFromJson(row.process_identity_json, Number(row.pid)),
+    );
     return {
       pid: row.pid,
       phase: row.phase,
@@ -683,6 +691,7 @@ export class Catalog {
   updateDaemonState(values) {
     const mapping = {
       pid: "pid",
+      processIdentity: "process_identity_json",
       phase: "phase",
       currentJobId: "current_job_id",
       resourceMode: "resource_mode",
@@ -697,7 +706,7 @@ export class Catalog {
     if (entries.length === 0) return this.daemonState();
     const fields = entries.map(([key]) => `${mapping[key]}=?`);
     const parameters = entries.map(([key, value]) => (
-      key === "lastReport" ? JSON.stringify(value) : value
+      key === "lastReport" || key === "processIdentity" ? JSON.stringify(value) : value
     ));
     this.database.prepare(`UPDATE daemon_state SET ${fields.join(",")} WHERE singleton=1`)
       .run(...parameters);

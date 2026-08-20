@@ -1,7 +1,7 @@
 {
   "schema": "uci_arena_standalone_service_contract_v1",
   "component_id": "uci_arena_evidence.service",
-  "component_version": "0.3.13",
+  "component_version": "0.3.14",
   "cli_entrypoint": "services/evidence-service/src/cli.mjs",
   "configuration_schema": "uci_arena_evidence_service_config_v1",
   "status_schema": "uci_arena_evidence_status_v1",
@@ -17,6 +17,7 @@
     "campaign",
     "profile_list",
     "startup_install",
+    "startup_recover",
     "startup_uninstall"
   ],
   "data_paths": ["workspace"],
@@ -44,6 +45,7 @@
       "target_register",
       "campaign_enqueue",
       "job_control"
+      ,"startup_recover"
     ],
     "output_schema": "uci_arena_service_output_v1"
   },

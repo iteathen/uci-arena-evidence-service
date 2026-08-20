@@ -49,6 +49,10 @@ runtime:
     windows: per_user_windows_task_scheduler_logon_task
     linux: systemd_user_service
     lifecycle_verification:
+      - Daemon singleton ownership is an exact process-instance identity that
+        binds pid, OS process-start identity, executable identity, and a
+        provider nonce. A reused numeric pid is stale ownership, while an
+        exact live owner is never displaced.
       - Startup install succeeds only when the generated registration matches
         the current package, workspace, and configuration and the daemon is
         observed active. Install first drains any existing registration and
@@ -84,6 +88,7 @@ runtime:
     - prune
     - startup_install
     - startup_status
+    - startup_recover
     - startup_uninstall
     - api_describe
     - api_status
@@ -189,6 +194,7 @@ resource_coordination:
     - "Low impact is achieved through admission, one-shard concurrency, low OS priority, and immediate revocation; target topology is never silently throttled."
     - "Foreground requests preempt background holders and must become runnable within two seconds."
     - "A lease contains pid, producer, nonce, heartbeat, priority, and inherited token; dead-owner leases are recoverable."
+    - "The daemon lock is retired only after its exact persisted identity is rechecked; unverifiable current ownership fails closed, and legacy pid-only locks become reclaimable through the bounded stale-heartbeat migration rule."
     - "A service child validates the inherited token instead of creating a competing foreground request."
     - "The complete child process tree is terminated on revocation or daemon death."
     - "Windows uses the native Job Object/EcoQoS helper when available and otherwise remains functional with portable low-priority controls."
@@ -274,7 +280,9 @@ manager_integration_api:
     - target_register
     - campaign_enqueue
     - job_control
+    - startup_recover
   output_schema: uci_arena_service_output_v1
+  startup_recovery_rule: "startup_recover is credential-free and starts only an existing current-configuration per-user registration; it never creates, replaces, enables, disables, or deletes registration."
   output_kinds: [evidence.dataset, timing_profile.qualified]
   rules:
     - "The installed component manifest is the only discovery authority for the API entrypoint, version, transport, and invocation prefix."
@@ -292,7 +300,7 @@ manager_integration_api:
     - "The API never returns SQL rows, catalog paths, credential data, runtime secrets, or unvalidated artifact-store paths."
     - "Installer retains installation and suite-promotion authority; Manager must preserve diagnostic-only, timing, strength, profile-publication, and adaptive-play distinctions in its installed-suite projections and controls."
     - "Unknown API major versions and unknown operations fail closed."
-    - "Status publishes daemon.active, daemon.processAlive, and daemon.stale as provider-owned runtime authority. Active is true only when the recorded process is live, the heartbeat is within stale_seconds, and the phase is neither stopped nor failed; a remembered phase, pid, startup registration, or desired state is never live authority."
+    - "Status publishes daemon.active, daemon.processAlive, and daemon.stale as provider-owned runtime authority. Active is true only when the recorded exact process instance is current, the heartbeat is within stale_seconds, and the phase is neither stopped nor failed; a remembered phase, pid, startup registration, or desired state is never live authority."
 
 first_campaign:
   candidate_option: "McgsTemporalWeightProfile=AdaptiveCurveV1"
@@ -333,6 +341,9 @@ validation:
     - linux_systemd_user_unit_contract_test
     - startup_install_active_and_current_configuration_contract_tests
     - startup_uninstall_bounded_exact_daemon_exit_contract_test
+    - manager_api_startup_recover_preserves_registration
+    - stale_daemon_lock_with_reused_live_pid_is_reclaimed
+    - exact_live_daemon_owner_is_never_displaced
     - idempotent_typed_manager_target_registration_test
     - windows_job_object_and_linux_process_group_cleanup_tests
 

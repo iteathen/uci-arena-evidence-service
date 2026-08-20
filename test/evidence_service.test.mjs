@@ -28,11 +28,13 @@ import {
   resolveJobTarget,
   sha256File,
 } from "../src/identity.mjs";
-import { publishQualifiedProfile, runDaemon } from "../src/daemon.mjs";
+import { acquireDaemonLock, publishQualifiedProfile, runDaemon } from "../src/daemon.mjs";
+import { currentProcessIdentity } from "../src/process_identity.mjs";
 import {
   buildLinuxUserUnit,
   buildWindowsTaskXml,
   linuxUnitName,
+  recoverStartup,
   waitForProcessExit,
   windowsStartupAction,
   windowsTaskActionFromXml,
@@ -308,6 +310,7 @@ test("daemon status requires a live process and fresh heartbeat", async (t) => {
 
   catalog.updateDaemonState({
     pid: process.pid,
+    processIdentity: currentProcessIdentity(),
     phase: "sleep",
     heartbeatAt: new Date().toISOString(),
   });
@@ -325,6 +328,7 @@ test("daemon status requires a live process and fresh heartbeat", async (t) => {
 
   catalog.updateDaemonState({
     pid: process.pid,
+    processIdentity: currentProcessIdentity(),
     heartbeatAt: new Date(Date.now() - config.daemon.staleMs - 1_000).toISOString(),
   });
   const stale = catalog.status().daemon;
@@ -1322,6 +1326,54 @@ test("daemon recovers a stale lock without disturbing an idle queue", async (t) 
   assert.equal(existsSync(lock), false);
 });
 
+test("daemon lock reclaims pid reuse without displacing an exact live owner", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const filename = path.join(config.paths.locks, "daemon.lock");
+  const current = currentProcessIdentity();
+  const replaced = {
+    ...current,
+    start_token: current.start_token === "1" ? "2" : "1",
+  };
+  const stale = new Date(Date.now() - config.daemon.staleMs - 10_000);
+  writeFileSync(filename, `${JSON.stringify({
+    schema: "uci_arena_evidence_daemon_lock_v2",
+    pid: process.pid,
+    nonce: "replaced-owner",
+    processIdentity: replaced,
+  })}\n`);
+  utimesSync(filename, stale, stale);
+  const acquired = await acquireDaemonLock(config, {
+    identity: current,
+    probe: () => ({ state: "present", identity: current }),
+  });
+  await acquired.release();
+
+  writeFileSync(filename, `${JSON.stringify({
+    schema: "uci_arena_evidence_daemon_lock_v2",
+    pid: process.pid,
+    nonce: "exact-owner",
+    processIdentity: current,
+  })}\n`);
+  utimesSync(filename, stale, stale);
+  await assert.rejects(
+    acquireDaemonLock(config, {
+      identity: current,
+      probe: () => ({ state: "present", identity: current }),
+    }),
+    /another Arena Evidence daemon owns/,
+  );
+
+  writeFileSync(filename, `${JSON.stringify({ pid: process.pid })}\n`);
+  utimesSync(filename, stale, stale);
+  const migrated = await acquireDaemonLock(config, {
+    identity: current,
+    probe: () => ({ state: "present", identity: current }),
+  });
+  await migrated.release();
+});
+
 test("platform startup definitions preserve low-priority cleanup contracts", async (t) => {
   const config = await workspace();
   closeWorkspaceAfter(t, config);
@@ -1366,6 +1418,56 @@ test("startup teardown waits for the exact process with a bounded deadline", asy
   }), false);
   assert.ok(Date.now() - started >= 15);
   assert.ok(Date.now() - started < 250);
+
+  const owner = {
+    schema: "uci_arena_process_instance_identity_v1",
+    platform: "win32",
+    pid: 42,
+    start_token: "100",
+    executable_path: "C:\\provider\\node.exe",
+    boot_id: "",
+  };
+  const reused = { ...owner, start_token: "200" };
+  assert.equal(await waitForProcessExit(42, {
+    timeoutMs: 20,
+    pollMs: 1,
+    identity: owner,
+    probe: () => ({ state: "present", identity: reused }),
+  }), true);
+  assert.equal(await waitForProcessExit(42, {
+    timeoutMs: 20,
+    pollMs: 1,
+    identity: owner,
+    probe: () => ({ state: "present", identity: owner }),
+  }), false);
+});
+
+test("startup recovery starts only an existing current registration", async () => {
+  const calls = [];
+  let statusCalls = 0;
+  const recovered = await recoverStartup({ workspace: "fixture" }, {
+    platform: "win32",
+    statusImpl: async () => ({
+      installed: true,
+      enabled: true,
+      active: statusCalls++ > 0,
+      matchesCurrentConfiguration: true,
+    }),
+    executeImpl: async (executable, argumentsList) => calls.push({ executable, argumentsList }),
+    waitForActiveImpl: async () => true,
+  });
+  assert.deepEqual(calls, [{
+    executable: "schtasks.exe",
+    argumentsList: ["/Run", "/TN", "UCI Arena Evidence Service"],
+  }]);
+  assert.equal(recovered.recoveryRequested, true);
+  assert.equal(recovered.registrationMutated, false);
+  await assert.rejects(recoverStartup({}, {
+    platform: "win32",
+    statusImpl: async () => ({ installed: true, matchesCurrentConfiguration: false }),
+    executeImpl: async () => calls.push("unexpected"),
+  }), /does not match/);
+  assert.equal(calls.length, 1);
 });
 
 test("cross-platform child shutdown removes the owned process tree within two seconds", async (t) => {
