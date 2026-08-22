@@ -1,10 +1,8 @@
 # UCI Arena Evidence Service
 
-The Evidence Service is a standalone Node.js orchestrator for the existing UCI
-Arena timing, match, SPRT, and complete-game tools. It owns durable scheduling,
-resource admission, evidence normalization, and qualified timing-profile
-publication. Chess legality and terminal state remain in the existing C++
-referee; the existing Node match runner owns UCI orchestration and statistics.
+The Evidence Service is a standalone Node.js orchestrator for durable timing-policy discovery and qualification evidence. It owns population experiment scheduling, resource admission, evidence normalization and retention, resumability, result catalogs, and qualified artifact publication. It invokes declared runtime tools through versioned contracts rather than acquiring chess, search, UCI, referee, or statistical-analysis authority itself.
+
+The existing deadline/provider qualifier, timing-profile publication, paired matches, SPRT support, and complete-game tools are useful parts of that product. They are not the complete purpose of the service. The long-term purpose is to accumulate trustworthy completed-game evidence at enough scale to discover how much thinking time is beneficial at different parts of a game, including the minimum additional time increments that produce useful average benefit.
 
 Node.js 24.15 or newer and the separately installed
 `uci_arena_evidence.runtime` component are required for queued jobs. The
@@ -20,6 +18,51 @@ queued adapter command, the service validates
 `contracts/evidence-runtime-contract.json`, the component identity and target,
 and all three allowlisted Node entrypoints. Missing runtime files are healthy
 while the queue is idle, but fail the affected job before a subprocess starts.
+
+## Timing evidence purpose
+
+Timing evidence is population evidence, not a conclusion drawn from one game or one move. Individual games are retained observations. A timing curve or effective timing step gains authority only from sufficiently large, appropriately stratified populations whose target/runtime identity and experimental conditions are explicit.
+
+The service is intended to answer two related questions from those populations:
+
+1. **Where does additional thinking time have downstream value?** Earlier decisions can constrain later reachable states and create causal dependency traps in which later moves are effectively forced. Extra late search cannot necessarily recover opportunity lost through an earlier weak decision. The temporal value shape must therefore be measured rather than hard-coded.
+2. **What is the smallest additional time worth buying?** Search improvement is not assumed to be usefully proportional to every extra millisecond. Evidence should estimate effective timing blocks: additional elapsed-time increments whose average benefit is large and reliable enough to justify their clock cost. The useful block size may increase as deeper search becomes more expensive.
+
+This creates a deliberately one-way, delayed relationship with search. Search runs independently according to its own attention/search-value rules and should go as fast and effectively as it can. Timing does not control search depth, attention, topology, queues, or work allocation. Neutral runtime/search observations may be retained as evidence and correlated after a game ends, but they do not become same-move control inputs. A qualified timing policy controls only the downstream publication wait: how long the surrounding controller waits before requesting the current move decision.
+
+The evidence lifecycle is therefore conceptually:
+
+```text
+search/runtime observations + timing allocation + game outcome
+                         |
+                         v
+                 completed-game evidence
+                         |
+                         v
+                 many-game population
+                         |
+                         v
+              declared analysis capability
+                         |
+             +-----------+-----------+
+             |                       |
+      temporal value shape    effective timing blocks
+             |                       |
+             +-----------+-----------+
+                         |
+                         v
+              candidate timing policy
+                         |
+                         v
+              held-out qualification
+                         |
+                         v
+              versioned policy artifact
+```
+
+Evidence Service owns the durable orchestration, identity, population assembly, retention, authority classification, candidate lifecycle, and publication workflow. Experiment-specific search metric semantics and statistical analysis remain behind declared runtime contracts. If the required analyzer does not yet exist, the service records that as an external capability dependency rather than recreating search/statistical logic locally.
+
+Discovery evidence and qualification evidence are separate. Discovery asks what policy should exist. Qualification asks whether a particular candidate/runtime can execute the declared policy safely and reproducibly. Existing provider/deadline timing qualification remains important, but it does not by itself establish a population timing law.
 
 ## Initialize and inspect
 
@@ -57,8 +100,12 @@ node src/cli.mjs job enqueue --campaign first --target TARGET_UUID
 It runs deadline/provider qualification, the `30+0`, `60+2`, `180+0`, and
 `180+3` time-use curve, paired offline `AdaptiveCurveV1` versus `EarlyCurrent`
 games, fixed-identity Stockfish depth 8/10/12/14 anchors, and finally
-`40/120+5`. Campaign evidence cannot displace the tracked `EarlyCurrent` live
-authority by itself.
+`40/120+5`. This first campaign is a bounded qualification/baseline campaign.
+Its small candidate/control samples are useful for wiring, runtime, provider,
+deadline, contamination, and basic comparative evidence, but are not a
+population-scale timing-policy discovery campaign and cannot establish an
+effective timing step curve. Campaign evidence cannot displace the tracked
+`EarlyCurrent` live authority by itself.
 
 UCI Arena Manager uses the component-declared API for the same bounded workflow.
 Its Services page can turn an already registered, receipt-verified UCI Arena
