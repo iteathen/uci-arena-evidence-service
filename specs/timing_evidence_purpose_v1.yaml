@@ -1,0 +1,154 @@
+meta:
+  spec_id: timing_evidence_purpose_v1
+  version: 1
+  status: active
+  owner: evidence_service_governance
+  purpose: >
+    Define the Timing Evidence Service as the durable orchestrator for discovering,
+    validating, and publishing evidence-backed timing policy without coupling
+    timing control into live search execution.
+
+authority:
+  relationship_to_service_spec: >
+    This specification clarifies the timing-evidence purpose and direction of
+    specs/uci_arena_evidence_service_v1.yaml. Existing qualification,
+    persistence, resource-isolation, and publication machinery is a valid subset
+    of the service responsibility; it is not the complete timing-evidence purpose.
+  current_implementation_note: >
+    The built-in first campaign is a bounded qualification/baseline campaign.
+    Its small samples are useful for wiring, runtime, provider, deadline,
+    contamination, and candidate/control checks but are not sufficient authority
+    for a population timing law or effective timing step curve.
+
+north_star: >
+  Accumulate trustworthy completed-game evidence across sufficiently large and
+  appropriately stratified populations, invoke declared analysis capabilities,
+  and publish versioned timing-policy candidates that estimate when additional
+  thinking time has enough expected downstream value to justify delaying move
+  publication.
+
+core_model:
+  runtime_direction:
+    - "Search executes independently and continuously according to its own search-value and attention rules."
+    - "Timing does not command search attention, depth, node allocation, work queues, or search topology."
+    - "A timing policy controls only how long the surrounding publication layer waits before requesting a move decision."
+    - "The move-decision operation samples the best currently available search evidence when publication is due; timing does not maintain or mutate search state."
+  evidence_direction:
+    - "External runtime/search observations may flow one way into retained evidence."
+    - "Those observations are not an immediate control dependency and need not be consumed during the same move or game."
+    - "Completed-game evidence may be sealed after game end and analyzed later."
+    - "Timing-policy revisions affect future games only after explicit qualification/publication; policy learning does not mutate the active game's policy."
+    - "No evidence or timing-policy path sends search-internal control instructions back into search."
+
+population_evidence:
+  rules:
+    - "A single game, move, or position never establishes a timing curve, timing step, or deployment policy."
+    - "Timing relationships are population properties inferred from many games so random tactical, opening, opponent, and outcome noise can average out."
+    - "Population evidence must preserve enough identity and experimental axes to separate materially different engine/runtime, hardware/provider, time-control, opening/opponent, and policy conditions."
+    - "Repeated correlated samples must not be counted as if they were independent evidence when that would materially overstate confidence."
+    - "Small or incomplete samples remain valid diagnostic/discovery observations but carry no population-policy authority."
+
+causal_temporal_value:
+  principle: >
+    The value of additional thinking time can differ by game location because
+    earlier decisions can constrain later reachable states. A weak earlier choice
+    may create causal dependency traps in which later moves are forced or have
+    little recoverable choice, so additional late search cannot necessarily
+    recover opportunity lost through earlier under-search.
+  rules:
+    - "Do not hard-code that early moves are always more valuable; estimate the temporal value shape from evidence."
+    - "Measure downstream consequence, not only immediate evaluation change, because local move quality can miss accumulated causal damage or preserved future optionality."
+    - "The evidence design may stratify by temporal/game-state regions, but those regions are experiment axes rather than search ownership concepts."
+
+effective_timing_blocks:
+  definition: >
+    An effective timing block is an empirically supported additional elapsed-time
+    increment whose average benefit is large and reliable enough to justify its
+    clock cost under the qualified evidence population. It is a timing-evidence
+    property, not a search work-block primitive.
+  rules:
+    - "Do not assume useful benefit is smoothly proportional to every additional millisecond."
+    - "Estimate the minimum additional elapsed time that produces a statistically useful average improvement under the relevant search-depth/work regime."
+    - "Step sizes may differ as search becomes deeper or more expensive; equal-size steps are not required."
+    - "Historical achieved depth/work/progress observations may help infer block thresholds after games complete, but deployed timing does not need to query live search depth or work counters."
+    - "A plateau where extra time produces no reliable marginal benefit is evidence against spending that clock until the next effective block is reachable."
+    - "Search-internal work batches and effective timing blocks are separate concepts and must never be treated as interchangeable without evidence."
+
+discovery_and_qualification:
+  discovery_evidence:
+    purpose: "Learn what timing policy should exist."
+    examples:
+      - population_game_outcomes
+      - timing_allocation_axes
+      - temporal_location_axes
+      - completed_game_progress_observations
+      - candidate_control_differences
+      - downstream_value_measurements
+      - effective_block_threshold_estimates
+  qualification_evidence:
+    purpose: "Prove a candidate/runtime can execute the declared policy safely and reproducibly."
+    examples:
+      - deadline_accuracy
+      - provider_identity
+      - runtime_identity
+      - resource_interval_cleanliness
+      - artifact_integrity
+      - held_out_policy_validation
+  rules:
+    - "Discovery and qualification are distinct evidence classes; neither substitutes for the other."
+    - "Existing timing-profile qualification remains valid and important but does not by itself discover the temporal value distribution or effective timing blocks."
+    - "A candidate timing law must be evaluated on held-out or otherwise independent evidence before gaining deployment authority."
+
+service_ownership:
+  owns:
+    - durable_population_campaign_orchestration
+    - exact_experiment_and_target_identity
+    - resumable_shard_and_job_scheduling
+    - immutable_raw_evidence_retention
+    - normalized_completed_game_evidence_catalogs
+    - discovery_vs_qualification_authority_projection
+    - population_dataset_partition_and_manifest_identity
+    - invocation_of_declared_analysis_capabilities
+    - candidate_timing_policy_artifact_lifecycle
+    - qualification_and_publication_workflow
+  does_not_own:
+    - chess_legality
+    - search_algorithm_or_attention_policy
+    - live_search_time_budgeting
+    - move_selection_algorithm
+    - experiment_specific_search_metric_semantics
+    - statistical_analysis_implementation_declared_by_an_external_runtime_contract
+    - automatic_policy_promotion_without_declared_evidence_gates
+  boundary_rule: >
+    The service may orchestrate and retain evidence needed by a timing analysis
+    without acquiring the semantic authority of the producer or analyzer. Inputs
+    and outputs cross versioned typed contracts; private implementation details do
+    not cross repository boundaries.
+
+analysis_contract_direction:
+  required_capabilities:
+    - "Consume sealed, identity-bound population datasets rather than mutable live-game state."
+    - "Estimate temporal marginal value of additional elapsed search time."
+    - "Estimate effective timing-block thresholds and uncertainty."
+    - "Preserve training/discovery versus held-out/qualification partitions."
+    - "Return a versioned candidate policy plus bounded evidence summary and provenance."
+  service_rule: >
+    If the current evidence-runtime contract lacks one of these capabilities,
+    Evidence Service records an explicit external capability dependency rather
+    than implementing search/statistical semantics locally.
+
+policy_artifact_direction:
+  principles:
+    - "A timing policy is a small downstream runtime artifact; it is not the evidence dataset or analyzer state."
+    - "A policy determines publication waiting/allocation behavior, not search behavior."
+    - "Policy identity binds the evidence population, analysis version, target/runtime identity domains, and qualification result needed for reproducibility."
+    - "Policy revisions are immutable/versioned and activate only through explicit composition/promotion authority."
+    - "Failure of evidence collection or analysis cannot mutate an already active policy or active search."
+
+acceptance_direction:
+  - "The service can schedule population-scale experiments without requiring memory or one scheduler pass proportional to the complete experiment population."
+  - "Completed-game evidence can be accumulated over long periods and resumed without fabricating independence or authority."
+  - "The service can distinguish diagnostic, discovery, qualification, and deployable-policy authority."
+  - "One game cannot promote a timing curve or effective timing step."
+  - "A qualified policy can be reproduced from sealed evidence identities and analysis provenance."
+  - "Search remains replaceable without changing timing-policy runtime logic, and timing-policy implementations remain replaceable without changing search internals."
