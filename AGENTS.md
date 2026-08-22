@@ -1,6 +1,6 @@
 # UCI Arena Evidence Service Agent Contract
 
-UCI Arena Evidence Service is the standalone evidence orchestration product. It owns scheduling, admission, resource isolation, durable population evidence, discovery and qualification workflows, timing-policy candidate lifecycle, normalization, resumability, result catalogs, datasets/publication, daemon lifecycle, and service health/status. It invokes declared evidence-runtime tools through published contracts. Existing timing-profile qualification is a valid subset of this responsibility, not the complete purpose of the service.
+UCI Arena Evidence Service is the standalone timing-policy production product. Its product output is a qualified, immutable timing-policy artifact derived from trustworthy population-scale completed-game evidence. It owns the production lifecycle around that output: experiment scheduling, admission and resource isolation, durable evidence identity and retention, population assembly, candidate lifecycle, qualification, publication, resumability, daemon lifecycle, and service health/status. It invokes declared evidence-runtime capabilities through published contracts. Scheduling, reports, timing profiles, and qualification jobs are machinery serving the product outcome; they are not the product purpose by themselves.
 
 ## Required start
 
@@ -19,13 +19,19 @@ Do not preload old in-engine scheduling/service implementations, historical extr
 
 ## Ownership and reuse
 
-Current Evidence Service specs/contracts own orchestration behavior; suite architecture owns cross-repository responsibility. External evidence-runtime executables provide allowlisted capabilities; they do not transfer chess/search/referee/timing-analysis/statistical truth into this service.
+Current Evidence Service specs/contracts own the timing-policy production lifecycle; suite architecture owns cross-repository responsibility. External evidence-runtime executables provide allowlisted producer/analyzer capabilities; they do not transfer chess/search/referee/timing-analysis/statistical truth into this service.
 
-The service exists to produce trustworthy evidence at useful scale as well as to qualify and publish results. Timing-policy discovery is population based: a single game, move, or position is never timing-law authority. Search/runtime observations may be retained as one-way evidence and analyzed after completed games, but timing policy never controls search attention, depth, topology, queues, or other search internals. Timing controls only downstream publication waiting/allocation through a separately qualified policy artifact.
+The governing product loop is:
 
-Before adding a new scheduler, queue/catalog, normalization path, dataset publisher, runtime invocation mechanism, resource-isolation mechanism, daemon control, status store, population experiment owner, or policy-publication owner, search the current Evidence Service owners/specs first and reuse or extend the existing owner.
+```text
+collect population evidence -> derive candidate -> qualify -> publish immutable timing-policy artifact
+```
 
-The service never owns chess legality, UCI engine behavior, referee behavior, search behavior, experiment-specific search metric semantics, or timing/statistical analysis algorithms that are declared external runtime contracts. It never imports another repository's private source tree.
+Timing-policy discovery is population based: a single game, move, or position is never timing-law authority. Search/runtime observations may flow one way into retained evidence and be analyzed after completed games, but timing policy never controls search attention, depth, topology, queues, or other search internals. Runtime timing consumes a qualified policy only to determine downstream publication waiting/allocation.
+
+Before adding a new scheduler, queue/catalog, normalization path, dataset publisher, runtime invocation mechanism, resource-isolation mechanism, daemon control, status store, population experiment owner, candidate owner, or policy-publication owner, search the current Evidence Service owners/specs first and reuse or extend the existing owner.
+
+The service never owns chess legality, UCI engine behavior, referee behavior, search behavior, move selection, experiment-specific search metric semantics, or timing/statistical analysis algorithms that are declared external runtime contracts. It never imports another repository's private source tree.
 
 ## Credentials, evidence, and recovery
 
@@ -33,11 +39,11 @@ Never read, print, summarize, hash, copy, validate, package, log, or commit cred
 
 Evidence is trustworthy only when input/runtime identity, configuration, relevant provenance, result identity, and partial/blocked state remain explicit. Missing required runtime artifacts or evidence is blocked/failed, not silently skipped or inferred passing.
 
-Long-running scheduling/publication workflows should be resumable and idempotent where practical, with bounded resource use and explicit recovery/retention behavior. Population-scale timing campaigns must remain bounded per scheduling operation even when the complete evidence population spans many games and long collection windows.
+Long-running collection/qualification/publication workflows should be resumable and idempotent where practical, with bounded resource use and explicit recovery/retention behavior. Population-scale timing campaigns must remain bounded per scheduling operation even when the complete evidence population spans many games and long collection windows.
 
 ## Execution and debugging
 
-For ambiguous scheduling, normalization, runtime invocation, result-catalog, resumability, or publication failures, preserve the original failure signature and trace raw expected-vs-actual evidence through the owning boundary before patching. A final score/report is not enough to clear a broken upstream evidence path.
+For ambiguous collection, scheduling, normalization, runtime invocation, result-catalog, candidate, qualification, resumability, or publication failures, preserve the original failure signature and trace raw expected-vs-actual evidence through the owning boundary before patching. A final score/report is not enough to clear a broken upstream evidence path.
 
 ## Validation and integration
 
@@ -47,4 +53,4 @@ Code changes are tested, committed and pushed on a branch, and opened as a draft
 
 ## Completion
 
-Complete when the requested evidence-service outcome is evidenced, external runtime ownership remains explicit, evidence claims are reproducible at the required depth and population scale, discovery and qualification authority are not conflated, and no material invalid partial workflow state remains.
+Complete when the requested timing-policy production outcome is evidenced, external runtime ownership remains explicit, evidence claims are reproducible at the required depth and population scale, discovery and qualification authority are not conflated, the resulting artifact authority is explicit, and no material invalid partial workflow state remains.
