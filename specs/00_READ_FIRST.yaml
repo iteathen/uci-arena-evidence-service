@@ -1,22 +1,23 @@
 meta:
   spec_id: evidence_service_foundation_v1
-  version: 2
+  version: 3
   status: active
   owner: governance
 
 north_star: >
-  Maintain an independently buildable evidence orchestrator that schedules
-  exact runtime tools and accumulates durable population evidence for timing-policy
-  discovery and qualification without acquiring chess, UCI, referee, search,
+  Produce increasingly well-supported, immutable timing-policy artifacts from
+  trustworthy population-scale completed-game evidence while remaining
+  independently buildable and without acquiring chess, UCI, referee, search,
   timing-analysis, or statistical-runtime authority.
 
 required_companion_specs:
   - specs/timing_evidence_purpose_v1.yaml
 
 hard_rules:
+  - The service product is the qualified timing-policy artifact; scheduling, qualification, catalogs, reports, and timing profiles are production machinery or supporting evidence, not the product purpose.
   - The service never imports UCI Arena, Book Forge, or Manager source.
   - Runtime executors are supplied through the typed uci_arena_evidence.runtime component.
-  - Existing qualification machinery is a valid subset of the service purpose, not the complete timing-evidence purpose.
+  - Existing qualification machinery is a valid production stage, not the complete timing-policy production lifecycle.
   - Timing-policy discovery is population based; no single game, move, or position establishes timing authority.
   - Search observations may flow one way into retained evidence, but timing never controls search internals or live search attention.
   - Evidence authority requires exact identity and a clean resource interval.
