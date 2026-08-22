@@ -26,7 +26,11 @@ The product loop is:
 ```text
 collect population evidence
           ↓
-derive candidate timing policy
+infer temporal value + minimum useful timing blocks
+          ↓
+compare candidate allocation strategies
+          ↓
+freeze candidate timing policy
           ↓
 qualify on independent evidence
           ↓
@@ -35,18 +39,25 @@ publish immutable timing-policy artifact
 future games produce evidence for later policy generations
 ```
 
-Timing evidence is population evidence, not a conclusion drawn from one game or one move. Individual games are retained observations. A timing curve or effective timing step gains authority only from sufficiently large, appropriately stratified populations whose target/runtime identity and experimental conditions are explicit.
+Timing evidence is population evidence, not a conclusion drawn from one game or one move. Individual games are retained observations. A timing curve, minimum useful timing block, or allocation strategy gains authority only from sufficiently large, appropriately stratified populations whose target/runtime identity and experimental conditions are explicit.
 
-The service is intended to learn two related properties from those populations:
+The service is intended to learn three related properties from those populations:
 
 1. **Where does additional thinking time have downstream value?** Earlier decisions can constrain later reachable states and create causal dependency traps in which later moves are effectively forced. Extra late search cannot necessarily recover opportunity lost through an earlier weak decision. The temporal value shape must therefore be measured rather than hard-coded.
-2. **What is the smallest additional time worth buying?** Search improvement is not assumed to be usefully proportional to every extra millisecond. Evidence should estimate effective timing blocks: additional elapsed-time increments whose average benefit is large and reliable enough to justify their clock cost. Useful block sizes may increase as deeper search becomes more expensive.
+2. **What is the smallest additional time worth buying?** Search improvement is not assumed to be usefully proportional to every extra millisecond. Evidence should estimate minimum useful timing blocks: additional elapsed-search opportunities whose average benefit is large and reliable enough to justify deliberately spending their clock cost. Useful block sizes may increase as deeper useful search becomes more expensive.
+3. **How should the available clock be allocated among those useful opportunities?** Current game time remains authoritative at runtime. Candidate strategies for composing remaining clock, increment, hard reserves, future opportunity cost, temporal value, and useful blocks are experimental treatments. The service should compare them on controlled many-game populations and qualify the best supported strategy rather than hard-coding a formula because it appears reasonable.
 
-This creates a deliberately one-way, delayed relationship with search. Search runs independently according to its own contract and should go as fast and effectively as it can. Timing does not control search depth, attention, topology, queues, or work allocation. Neutral runtime/search observations may be retained as evidence and correlated after a game ends, but they do not become same-move control inputs. A qualified timing policy controls only downstream publication waiting: how long the surrounding controller waits before requesting the current move decision.
+Current game time and minimum useful timing blocks are both authoritative over different facts. The live clock determines what is feasible and what spending time now costs. Qualified block evidence determines the minimum additional search-time purchase that has demonstrated useful average value. Neither is merely a modifier of the other. If the next useful block is larger than the safely available time, the runtime should publish rather than overspend or reinterpret an arbitrary partial duration as an evidence-supported block.
 
-Experiment-specific search metric semantics and statistical analysis remain behind declared runtime contracts. Evidence Service owns the population, exact experiment identity, durable production state, candidate lifecycle, qualification authority, provenance, and artifact publication. If a required analyzer does not yet exist, that is an external capability dependency rather than a reason to recreate search/statistical logic inside this repository.
+The qualified policy artifact therefore should not be a static per-move duration schedule. It should carry the evidence-backed useful-block structure and a versioned allocation strategy that a downstream move-time owner applies to current-game facts. Whenever multiple timing pressures matter, the candidate strategy must preserve all material pressures and hard bounds; a convenient product of simple modifiers is justified only if evidence shows that representation is adequate.
 
-Discovery and qualification remain separate production stages. Discovery determines what candidate policy should exist. Qualification determines whether a frozen candidate may become a qualified published artifact. Existing provider/deadline timing qualification remains important, but it does not by itself establish a population timing law.
+This creates a deliberately one-way, delayed relationship with search. Search runs independently according to its own contract and should go as fast and effectively as it can. Timing does not control search depth, attention, topology, queues, or work allocation. Neutral runtime/search observations may be retained as evidence and correlated after a game ends, but they do not become same-move search-control inputs. A qualified timing policy controls only downstream publication waiting/allocation through the consumer that owns the current game clock.
+
+Search-time policy is also not necessarily applicable to every move. As consumer guidance, a move actually resolved by an applicable non-search authority should proceed without purchasing search-time blocks; book/table availability or advisory evidence alone is not enough. Such resolved moves may remain in whole-game evidence for causal context but should not become zero-time search treatments. Likewise, emergency publication below a minimum useful block does not prove that a smaller useful block exists. The runtime consumer, not this service, owns the actual applicability decision.
+
+Experiment-specific search metric semantics and statistical analysis remain behind declared runtime contracts. Evidence Service owns the population, exact experiment identity, durable production state, candidate lifecycle, qualification authority, provenance, and artifact publication. If a required analyzer or strategy-comparison capability does not yet exist, that is an external capability dependency rather than a reason to recreate search/statistical logic inside this repository.
+
+Discovery and qualification remain separate production stages. Discovery determines what candidate policy should exist. Qualification determines whether a frozen candidate may become a qualified published artifact. Existing provider/deadline timing qualification remains important, but it does not by itself establish population timing blocks or an allocation strategy.
 
 ## Initialize and inspect
 
@@ -87,9 +98,9 @@ games, fixed-identity Stockfish depth 8/10/12/14 anchors, and finally
 `40/120+5`. This first campaign is a bounded qualification/baseline campaign.
 Its small candidate/control samples are useful for wiring, runtime, provider,
 deadline, contamination, and basic comparative evidence, but are not a
-population-scale timing-policy production campaign and cannot establish an
-effective timing step curve. Campaign evidence cannot displace the tracked
-`EarlyCurrent` live authority by itself.
+population-scale timing-policy production campaign and cannot establish minimum
+useful timing blocks or a best allocation strategy. Campaign evidence cannot
+displace the tracked `EarlyCurrent` live authority by itself.
 
 UCI Arena Manager uses the component-declared API for the same bounded workflow.
 Its Services page can turn an already registered, receipt-verified UCI Arena
