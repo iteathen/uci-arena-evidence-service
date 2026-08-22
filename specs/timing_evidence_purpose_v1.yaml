@@ -1,6 +1,6 @@
 meta:
   spec_id: timing_evidence_purpose_v1
-  version: 2
+  version: 3
   status: active
   owner: evidence_service_governance
   purpose: >
@@ -11,11 +11,15 @@ meta:
 product_identity:
   product: qualified_immutable_timing_policy_artifact
   outcome: >
-    Produce increasingly well-supported timing policies that decide how long a
-    downstream publication layer should wait before requesting the current move.
+    Produce increasingly well-supported timing policies that tell a downstream
+    move-time owner what additional elapsed-search opportunities are useful and
+    which evidence-backed allocation strategy should compose those opportunities
+    with authoritative current-game timing constraints.
   production_loop:
     - collect_population_evidence
-    - derive_candidate_policy
+    - infer_temporal_value_and_minimum_useful_blocks
+    - compare_candidate_allocation_strategies
+    - freeze_candidate_policy
     - qualify_candidate_on_independent_evidence
     - publish_immutable_policy_artifact
     - collect_future_evidence_for_later_policy_generations
@@ -34,34 +38,67 @@ authority:
     The built-in first campaign is a bounded qualification/baseline campaign.
     Its small samples are useful for wiring, runtime, provider, deadline,
     contamination, and candidate/control checks but are not sufficient authority
-    for a population timing law or effective timing step curve.
+    for a population timing law, minimum useful timing blocks, or a best
+    allocation strategy.
 
 north_star: >
-  Produce increasingly well-supported timing-policy artifacts from sufficiently
-  large, appropriately stratified populations of completed games, using declared
-  external producer/analyzer capabilities while retaining exact evidence,
-  provenance, qualification, and publication authority locally.
+  Produce qualified timing-policy artifacts from sufficiently large,
+  appropriately stratified populations of completed games. Those artifacts
+  should preserve evidence-backed minimum useful timing blocks and a qualified
+  strategy for composing all material move-time pressures, while current-game
+  clock facts remain authoritative at runtime.
+
+runtime_authority_model:
+  game_time:
+    owner: downstream_move_time_runtime
+    authority: current_game_feasibility_and_opportunity_cost
+    examples:
+      - remaining_clock
+      - increment
+      - authoritative_moves_to_go
+      - explicit_protocol_time_limit
+      - output_or_transport_reserve
+    rules:
+      - "The Evidence Service does not replace or predict away current-game clock authority."
+      - "A timing-policy artifact is not a static duration table that may override the live clock."
+      - "Current clock pressure can make an otherwise useful block unaffordable."
+  minimum_useful_timing_block:
+    owner: qualified_timing_policy_artifact
+    authority: evidence_supported_minimum_additional_search_purchase
+    rules:
+      - "Minimum useful block size is authoritative evidence, not a soft modifier."
+      - "The artifact may describe nonuniform blocks and unsupported regions."
+      - "A runtime must not reinterpret an unaffordable block as permission to invent a smaller evidence-supported block."
+  allocation_strategy:
+    owner: qualified_timing_policy_artifact
+    authority: evidence_supported_strategy_for_composing_pressures
+    rules:
+      - "Architecture does not guess one permanent allocation formula."
+      - "Candidate strategies are experimental treatments and gain authority only through controlled population evidence and independent qualification."
+      - "The strategy must preserve the meaning of all material pressures and hard bounds instead of flattening them into a convenient scalar when that loses information."
+      - "Runtime policy application may consume current clock facts but does not perform population learning during the active game."
 
 core_model:
   runtime_direction:
     - "Any connected search/runtime executes independently according to its own contract and internal search-value or attention rules."
     - "Timing does not command search attention, depth, node allocation, work queues, or search topology."
-    - "A timing policy controls only downstream publication waiting/allocation; this service does not own move-decision or search-execution semantics."
+    - "Move timing combines current-game authority with the qualified policy to decide when publication should be requested."
     - "Replacing a conforming search/runtime implementation must not require changing timing-policy production or runtime policy semantics."
   evidence_direction:
     - "External runtime/search observations may flow one way into retained evidence."
-    - "Those observations are a delayed evidence dependency, not an immediate control dependency, and need not be consumed during the same move or game."
+    - "Those observations are a delayed evidence dependency, not an immediate search-control dependency, and need not be consumed during the same move or game."
     - "Completed-game evidence may be sealed after game end and analyzed later."
     - "Timing-policy revisions affect future games only after explicit qualification/publication; policy learning does not mutate the active game's policy."
     - "No evidence or timing-policy path sends search-internal control instructions back into search."
 
 population_evidence:
   rules:
-    - "A single game, move, or position never establishes a timing curve, timing step, or deployable policy."
+    - "A single game, move, or position never establishes a timing curve, useful block, allocation strategy, or deployable policy."
     - "Timing relationships are population properties inferred from many games so random tactical, opening, opponent, and outcome noise can average out."
     - "Population evidence must preserve enough identity and experimental axes to separate materially different runtime, hardware/provider, time-control, opening/opponent, and policy conditions."
     - "Repeated correlated samples must not be counted as if they were independent evidence when that would materially overstate confidence."
     - "Small or incomplete samples remain valid diagnostic/discovery observations but carry no population-policy authority."
+    - "Current-game clock state, increment, reserves, purchased/skipped blocks, and downstream outcomes should remain separable evidence dimensions when the experiment needs them."
 
 causal_temporal_value:
   principle: >
@@ -71,23 +108,52 @@ causal_temporal_value:
     little recoverable choice, so additional late search cannot necessarily
     recover opportunity lost through earlier under-search.
   rules:
-    - "Do not hard-code that early moves are always more valuable; estimate the temporal value shape from population evidence."
-    - "Measure downstream consequence, not only immediate evaluation change, because local move quality can miss accumulated causal damage or preserved future optionality."
+    - "Do not hard-code that early moves are always more valuable; estimate temporal value from population evidence."
+    - "Measure downstream consequence, not only immediate evaluation change."
     - "The evidence design may stratify by temporal/game-state regions, but those regions are experiment axes rather than search ownership concepts."
 
 effective_timing_blocks:
   definition: >
-    An effective timing block is an empirically supported additional elapsed-time
-    increment whose average benefit is large and reliable enough to justify its
-    clock cost under the qualified evidence population. It is a timing-evidence
-    property, not a search work-block primitive.
+    A minimum useful timing block is an empirically supported additional
+    elapsed-search opportunity whose average benefit is large and reliable enough
+    to justify deliberately spending that amount of clock under the qualified
+    evidence population. It is a timing-evidence property, not a search work-block
+    primitive.
   rules:
     - "Do not assume useful benefit is smoothly proportional to every additional millisecond."
     - "Estimate the minimum additional elapsed time that produces a statistically useful average improvement under the relevant historical search-depth/work regime."
     - "Step sizes may differ as deeper useful search becomes more expensive; equal-size steps are not required."
     - "Historical achieved depth/work/progress observations may help infer block thresholds after games complete, but deployed timing does not need to query live search depth or work counters."
-    - "A plateau where extra time produces no reliable marginal benefit is evidence against spending that clock until the next effective block is reachable."
+    - "A plateau where extra time produces no reliable marginal benefit is evidence against deliberately spending clock until the next useful block is reachable."
     - "Search-internal work batches and effective timing blocks are separate concepts and must never be treated as interchangeable without evidence."
+
+allocation_strategy_discovery:
+  question: >
+    Given authoritative current-game timing constraints and one or more
+    evidence-backed useful blocks, what strategy converts the available clock
+    resource into the best downstream chess result?
+  rules:
+    - "Do not settle this question by intuition alone."
+    - "Compare candidate strategies under controlled many-game experiments against a declared incumbent."
+    - "Preserve every materially different pressure needed to reproduce the strategy decision, including hard safety bounds and opportunity-cost inputs."
+    - "A useful block can be evidence-supported yet rejected by the runtime because current clock authority makes it unaffordable or too costly under the qualified strategy."
+    - "A candidate strategy may be greedy, marginal-value based, scarcity aware, expected-horizon based, or another declared model; these are hypotheses until evidence qualifies them."
+    - "Do not assume a product of simple modifiers is adequate unless comparative evidence supports that functional form."
+    - "Freeze strategy identity and parameters before held-out qualification."
+
+applicability_recommendation:
+  status: consumer_guidance_not_runtime_authority
+  recommendation: >
+    Timing-policy artifacts describe allocation for decisions whose outcome can
+    benefit from additional search. A consumer should not use the policy to delay
+    a move already resolved by an applicable non-search authority. Such moves may
+    remain in whole-game evidence for downstream causal context but should be
+    outside the search-time treatment population rather than encoded as zero-time
+    searched decisions.
+  caveat: >
+    Mere availability of a book/table source, a hint/prior, or a candidate safety
+    constraint does not imply resolution. The Engine or other move-time consumer
+    owns actual applicability semantics.
 
 discovery_and_qualification:
   discovery_evidence:
@@ -95,11 +161,12 @@ discovery_and_qualification:
     examples:
       - population_game_outcomes
       - timing_allocation_axes
+      - current_clock_and_increment_axes
       - temporal_location_axes
       - completed_game_progress_observations
-      - candidate_control_differences
       - downstream_value_measurements
       - effective_block_threshold_estimates
+      - candidate_allocation_strategy_comparisons
   qualification_evidence:
     purpose: "Determine whether a frozen candidate may become a qualified published timing-policy artifact."
     examples:
@@ -111,8 +178,8 @@ discovery_and_qualification:
       - artifact_integrity
   rules:
     - "Discovery and qualification are distinct production stages and evidence authorities; neither substitutes for the other."
-    - "Existing timing-profile qualification remains valid and important but does not by itself discover the temporal value distribution or effective timing blocks."
-    - "A candidate timing law must be evaluated on held-out or otherwise independent evidence before gaining qualified policy authority."
+    - "Existing timing-profile qualification remains valid and important but does not by itself discover useful blocks or the best allocation strategy."
+    - "A candidate timing policy must be evaluated on held-out or otherwise independent evidence before gaining qualified policy authority."
 
 service_ownership:
   owns:
@@ -130,22 +197,23 @@ service_ownership:
   does_not_own:
     - chess_legality
     - search_algorithm_or_attention_policy
-    - live_search_time_budgeting
+    - live_current_game_clock_authority
+    - runtime_move_time_application
     - move_selection_algorithm
     - experiment_specific_search_metric_semantics
     - statistical_analysis_implementation_declared_by_an_external_runtime_contract
     - automatic_policy_activation_or_suite_promotion
   boundary_rule: >
     The service owns production of the policy artifact without acquiring the
-    semantic authority of the observation producer or analyzer. Inputs and
-    outputs cross versioned typed contracts; private implementation details do
-    not cross repository boundaries.
+    runtime authority of the consumer or the semantic authority of the
+    observation producer/analyzer.
 
 analysis_contract_direction:
   required_capabilities:
     - "Consume sealed, identity-bound population datasets rather than mutable live-game state."
     - "Estimate temporal marginal value of additional elapsed thinking time."
-    - "Estimate effective timing-block thresholds and uncertainty."
+    - "Estimate minimum useful timing-block thresholds and uncertainty."
+    - "Compare declared candidate allocation strategies against an incumbent under controlled populations."
     - "Preserve discovery versus held-out qualification partitions."
     - "Return a versioned candidate policy plus bounded evidence summary and provenance."
   service_rule: >
@@ -157,8 +225,9 @@ policy_artifact_direction:
   principles:
     - "The qualified timing-policy artifact is the primary product output of this service."
     - "The policy artifact is small downstream runtime data; it is not the evidence dataset or analyzer state."
-    - "A policy determines publication waiting/allocation behavior, not search behavior."
-    - "Policy identity binds the evidence population, analysis version, applicable target/runtime identity domains, and qualification result needed for reproducibility."
+    - "The artifact carries useful-block authority and the qualified allocation strategy, not a static move-duration schedule that overrides the live clock."
+    - "A policy determines downstream publication waiting/allocation behavior, not search behavior."
+    - "Policy identity binds the evidence population, analysis/strategy version, applicable runtime identity domains, and qualification result needed for reproducibility."
     - "Policy revisions are immutable/versioned and activate only through explicit external composition/promotion authority."
     - "Failure of evidence collection or analysis cannot mutate an already active policy or active search."
 
@@ -166,6 +235,7 @@ acceptance_direction:
   - "The service can schedule population-scale experiments without requiring memory or one scheduler pass proportional to the complete experiment population."
   - "Completed-game evidence can be accumulated over long periods and resumed without fabricating independence or authority."
   - "The service can distinguish diagnostic, discovery, qualification, and qualified-policy authority."
-  - "One game cannot promote a timing curve or effective timing step."
+  - "One game cannot promote a timing curve, useful block, or allocation strategy."
   - "A qualified policy can be reproduced from sealed evidence identities and analysis provenance."
+  - "At least two allocation strategies can be represented under one experimental contract without moving their runtime application into this service."
   - "Search remains replaceable without changing timing-policy production or runtime policy semantics."
