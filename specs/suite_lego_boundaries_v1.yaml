@@ -1,6 +1,6 @@
 meta:
   spec_id: evidence_service_suite_lego_boundaries_v1
-  version: 2
+  version: 3
   status: active
   owner: governance
   purpose: >
@@ -23,18 +23,19 @@ authority:
 
 repository_role:
   repository: iteathen/uci-arena-evidence-service
-  product_role: evidence_discovery_and_qualification_orchestrator
+  product_role: timing_policy_production_service
+  product_output: qualified_immutable_timing_policy_artifact
   owns:
-    - evidence_scheduling_and_run_admission
+    - timing_policy_production_lifecycle
+    - population_evidence_scheduling_and_run_admission
     - resource_isolation_and_preemption
     - population_experiment_orchestration
-    - qualification_workflow_orchestration
-    - timing_policy_discovery_workflows
-    - timing_profile_generation_workflows
-    - evidence_normalization_and_result_catalogs
-    - resumable_job_state
-    - dataset_and_profile_publication
+    - evidence_normalization_retention_and_result_catalogs
+    - resumable_job_and_dataset_state
     - candidate_timing_policy_artifact_lifecycle
+    - qualification_workflow_orchestration
+    - timing_profile_generation_workflows_as_supporting_qualification
+    - dataset_profile_and_policy_publication
     - provider_startup_health_status_configuration_and_persistence
     - evidence_artifact_component_manifests_and_provenance
   must_not_own:
@@ -49,14 +50,15 @@ repository_role:
     - suite_installation_or_release_composition
 
 mandatory_boundaries:
+  - "The service exists to turn population-scale completed-game evidence into qualified immutable timing-policy artifacts; orchestration is machinery serving that product outcome."
   - "Evidence Service invokes allowlisted runtime tools through the exact uci_arena_evidence.runtime contract; it never imports or reconstructs producer/analyzer internals."
-  - "External runtime tools retain chess, UCI, referee, search-observation semantics, timing-analysis, and statistical truth; Evidence Service owns durable scheduling, admission, normalization, cataloging, population assembly, workflow state, and publication."
+  - "External runtime tools retain chess, UCI, referee, search-observation semantics, timing-analysis, and statistical truth; Evidence Service owns durable evidence population identity, production workflow state, qualification authority, provenance, and publication."
   - "Timing evidence is one-way and delayed: runtime/search observations may enter completed-game evidence, but timing policy never drives search attention, depth, topology, or work scheduling."
   - "Population timing-law authority requires many identity-bound observations; no single game, move, or position can establish a temporal curve or effective timing step."
-  - "Existing provider/deadline timing qualification is a valid subset of the product role and must not be mistaken for complete timing-policy discovery."
+  - "Existing provider/deadline timing qualification is a valid production stage and must not be mistaken for the complete timing-policy product."
   - "Evidence authority requires exact component, target, artifact, and resource-interval identity and fails closed on drift or contamination."
   - "Manager consumes typed status, configuration, job controls, and output projections only through the published service contract and never opens provider-private catalogs or raw storage."
-  - "Installer owns suite composition, artifact validation, deployment, upgrade, repair, and rollback; Evidence Service publishes its immutable artifact and component manifest."
+  - "Installer owns suite composition, artifact validation, deployment, upgrade, repair, and rollback; Evidence Service publishes its immutable component and qualified outputs."
   - "Repositories exchange versioned contracts and immutable release artifacts and never import one another's internal source trees."
   - "Evidence Service remains independently buildable, testable, versioned, installable, upgradable, removable, and useful without Manager availability."
   - "Separately installable evidence runtime tools remain externally owned unless independent source ownership and release lifecycle later justify a repository split."
@@ -78,15 +80,16 @@ published_contract:
 substitution_acceptance:
   required:
     - "A clean build succeeds without Engine, Manager, Book Forge, Lichess Bot, or Installer source checkouts."
-    - "A fake conforming evidence runtime proves scheduling, admission, normalization, resumability, population campaign handling, and publication without producer source."
+    - "A fake conforming evidence runtime proves collection orchestration, admission, normalization, resumability, population handling, candidate lifecycle, qualification wiring, and publication without producer source."
     - "A conforming Manager consumes Evidence status, configuration validation, controls, and outputs only through the published service contract."
     - "The Installer can add, remove, repair, or upgrade Evidence Service from its manifest without product-specific installer control flow."
     - "Unknown contract major versions, component substitution, identity drift, path escape, contaminated intervals, and invalid artifacts fail closed."
-    - "A conforming replacement search implementation can produce the declared observation contract without requiring changes to Evidence scheduling or timing-policy runtime logic."
+    - "A conforming replacement search implementation can produce the declared observation contract without requiring changes to Evidence production logic or timing-policy runtime semantics."
 
 change_gate:
   questions:
-    - "Is this evidence orchestration behavior or externally owned runtime/analysis truth?"
+    - "Does this change help produce, qualify, preserve, or publish a timing-policy artifact, or is it only machinery that should remain subordinate to that product?"
+    - "Is this Evidence-owned production behavior or externally owned runtime/analysis truth?"
     - "Does the service consume an exact typed runtime contract rather than a source checkout or guessed path?"
     - "Can the runtime tool be replaced by a conforming implementation without changing scheduling and catalog logic?"
     - "Does population evidence remain statistically honest about sample identity, correlation, and authority?"
