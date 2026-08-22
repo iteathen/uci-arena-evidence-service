@@ -1,14 +1,14 @@
 meta:
   spec_id: evidence_service_foundation_v1
-  version: 3
+  version: 4
   status: active
   owner: governance
 
 north_star: >
   Produce increasingly well-supported, immutable timing-policy artifacts from
   trustworthy population-scale completed-game evidence while remaining
-  independently buildable and without acquiring chess, UCI, referee, search,
-  timing-analysis, or statistical-runtime authority.
+  independently buildable and without acquiring live game-clock, chess, UCI,
+  referee, search, timing-analysis, or statistical-runtime authority.
 
 required_companion_specs:
   - specs/timing_evidence_purpose_v1.yaml
@@ -18,8 +18,12 @@ hard_rules:
   - The service never imports UCI Arena, Book Forge, or Manager source.
   - Runtime executors are supplied through the typed uci_arena_evidence.runtime component.
   - Existing qualification machinery is a valid production stage, not the complete timing-policy production lifecycle.
-  - Timing-policy discovery is population based; no single game, move, or position establishes timing authority.
+  - Timing-policy discovery is population based; no single game, move, or position establishes timing-law, minimum-useful-block, allocation-strategy, or deployment authority.
+  - Current game time remains runtime authority over feasibility and opportunity cost; the policy artifact must not become a static duration table that overrides live clock facts.
+  - Minimum useful timing blocks are evidence-backed policy authority, and the strategy that composes them with current-game pressures must itself be experimentally compared and independently qualified.
+  - Whenever multiple timing pressures are material, evidence/analysis must preserve their correct authority and shape; do not flatten hard bounds, useful quanta, opportunity costs, and expected benefits into one scalar unless evidence supports that representation.
   - Search observations may flow one way into retained evidence, but timing never controls search internals or live search attention.
+  - Resolved non-search moves and emergency-under-minimum publications must not masquerade as ordinary searched timing treatments.
   - Evidence authority requires exact identity and a clean resource interval.
   - Persistent datasets survive repair, upgrade, and normal uninstall.
   - Releases carry exact digests, SBOMs, test receipts, and keyless provenance.
