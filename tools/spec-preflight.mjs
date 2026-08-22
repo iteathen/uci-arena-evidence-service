@@ -5,6 +5,7 @@ const changed = changedIndex < 0 ? [] : process.argv.slice(changedIndex + 1);
 const specs = new Set([
   "specs/00_READ_FIRST.yaml",
   "specs/repository_boundary_v1.yaml",
+  "specs/timing_evidence_purpose_v1.yaml",
 ]);
 if (changed.length === 0 || changed.some((name) =>
   /^(src|test|fixtures|contracts|release|tools|package)/u.test(name))) {
