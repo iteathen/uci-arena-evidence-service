@@ -1,28 +1,37 @@
 spec:
   id: uci_arena_evidence_service_v1
-  version: 2
+  version: 3
   status: active
   owner: iteathen/uci-arena-evidence-service
   purpose: >
     Produce qualified, immutable timing-policy artifacts from trustworthy
-    population-scale completed-game evidence while keeping chess, UCI, search,
-    referee, experiment-specific analysis, and statistical authority in declared
-    external runtime capabilities.
+    population-scale completed-game evidence while keeping live game-clock
+    application, chess, UCI, search, referee, experiment-specific analysis, and
+    statistical authority outside this service.
 
 product_direction:
   product_output: qualified_immutable_timing_policy_artifact
   current_implementation_state: qualification_and_baseline_subset
   production_stages:
     - collect_population_evidence
-    - derive_candidate_policy_through_declared_analysis_capability
+    - infer_temporal_value_and_minimum_useful_blocks_through_declared_analysis_capability
+    - compare_candidate_allocation_strategies_through_declared_analysis_capability
+    - freeze_candidate_policy
     - qualify_frozen_candidate_on_independent_evidence
     - publish_versioned_immutable_policy_artifact
+  authority_split:
+    current_game_time: runtime_consumer_authority
+    minimum_useful_timing_blocks: qualified_policy_artifact_authority
+    allocation_strategy: qualified_policy_artifact_authority
+    search_execution: external_search_authority
   rules:
     - "The existing timing-profile qualifier, paired matches, complete-game diagnostics, catalogs, and background scheduler are valid production machinery but are not the complete product."
-    - "A single game, move, or position never establishes timing-policy authority."
+    - "A single game, move, or position never establishes timing-policy, useful-block, or allocation-strategy authority."
     - "The built-in first campaign remains a bounded qualification/baseline campaign until an explicit population-scale campaign contract is implemented."
+    - "Current game time remains authoritative at runtime over feasibility/opportunity cost; the policy artifact must not become a static duration table that overrides live clock facts."
+    - "Qualified minimum useful blocks are authoritative evidence-supported search-time quanta, and the allocation strategy that composes those blocks with current-game pressures must itself be experimentally qualified."
     - "Timing-policy production consumes search/runtime observations only as delayed one-way evidence; it never controls search attention, depth, topology, queues, or work allocation."
-    - "A qualified timing policy controls only downstream publication waiting/allocation and does not mutate search behavior."
+    - "Consumer guidance may exclude an actually non-search-resolved move from search-time treatment, but Evidence Service does not own runtime move-resolution applicability."
 
 ownership:
   service:
@@ -49,6 +58,8 @@ ownership:
     - second_chess_controller
     - second_uci_protocol_implementation
     - second_search_or_move_selection_implementation
+    - live_game_clock_allocator
+    - runtime_move_time_application
     - service_local_experiment_specific_statistical_analyzer_when_declared_external
     - arbitrary_queued_commands
     - training_or_match_hot_path_imports
@@ -248,7 +259,7 @@ adapters:
     - "A recognized adapter artifact that records producer failures is rejected with the exact producer failure before source-identity normalization; secondary missing-identity diagnostics must not mask the originating failure."
     - "Service adapters execute Node entrypoints and C++ binaries only."
     - "The Node paired runner owns deterministic manifests, clock controls, checkpoint/resume, single-game shards, and MCGS telemetry while the C++ referee owns chess legality and terminal state."
-    - "The service never injects a legacy timing-policy experiment. Candidate and control options come from the exact registered target plus explicitly declared job overrides; live MCGS timing identity remains McgsTimePolicy=RelativeClockTemporalV1."
+    - "The service never injects a legacy timing-policy experiment. Candidate and control options come from the exact registered target plus explicitly declared job overrides; live MCGS timing identity remains McgsTimePolicy=RelativeClockTemporalV1 until a later versioned policy contract is qualified and integrated."
     - "Complete-game matrix outputs remain diagnostic-only."
     - "The complete-game adapter passes an explicit fixed-depth topology activation target at or beyond the configured split depth and a separate timed deadline-probe budget; neither gate may substitute for the other."
     - "Max-ply adjudications, incomplete color pairs, engine failures, and aborted games have no strength authority."
@@ -265,7 +276,7 @@ time_profile_publication:
     - resource_profile_publication_authority
     - active_or_explicit_target_still_current
   rules:
-    - "This profile is execution/provider/deadline qualification evidence and a supporting production artifact; it is not by itself the population-derived timing-policy product."
+    - "Current `uci_time_profile_v3` is existing execution/provider/deadline timing authority and keeps its historical schema meaning. It is not silently reinterpreted as the future population-derived useful-block/allocation-strategy artifact."
     - "Timing authority is the Engine-owned semantic timing identity: timing/search contract, model semantics, provider/runtime and hardware identity, and effective search topology. The executable digest and full UCI option inventory are retained as provenance and do not invalidate an already-qualified profile when only unrelated build content changes."
     - "Fresh timing jobs and their produced artifacts remain bound to the exact registered target executable that actually ran; semantic profile reuse must not weaken job or observation provenance."
     - "The qualifier candidate mode cannot write the live cache."
@@ -347,8 +358,8 @@ first_campaign:
   rules:
     - "Every strength opening is played with reversed colors."
     - "Candidate/control pairs differ only in the declared experimental UCI options."
-    - "The current one-pair cells are baseline/qualification evidence and cannot establish population timing-law or effective timing-block authority."
-    - "AdaptiveCurveV1 campaign results are offline evidence only. They cannot change the tracked EarlyCurrent live authority or grant temporal-curve deployment authority."
+    - "The current one-pair cells are baseline/qualification evidence and cannot establish population timing-law, minimum-useful-block, or allocation-strategy authority."
+    - "AdaptiveCurveV1 campaign results are offline evidence only. They cannot change the tracked EarlyCurrent live authority or grant future policy deployment authority."
     - "Stockfish identity, net, threads, hash, options, and depth are recorded."
     - "Small or incomplete samples are retained without strength conclusions."
 
@@ -401,7 +412,7 @@ relocatable_install:
     - "The component publishes a bounded installer-integration entrypoint that owns Evidence configuration and active-target document generation from declared dependency and timing-profile bindings."
     - "The published component contains the complete regular-file runtime closure of every declared Node entrypoint, including the vendored time-profile contract used by installer integration. Release construction imports each staged entrypoint in an isolated Node process before creating the archive; source-tree availability is not package evidence."
     - "Installer integration validates a supplied timing profile through the Engine-owned time-profile contract, records the installed engine digest as current target provenance, and does not equate a historical profile executable digest with timing authority. Runtime consumers revalidate the profile's semantic timing identity before applying it."
-    - "Installer supplies validated paths through the versioned installation context and does not interpret Evidence configuration fields, profile semantics, or active-target document contents."
+    - "Installer supplies validated paths through the versioned installation context and does not interpret Evidence configuration fields, profile semantics, active-target document contents, minimum useful timing blocks, or allocation strategy."
     - "The component manifest declares the Evidence startup CLI, exact action arrays, workspace/configuration flags, root response shape, and mandatory configuration-match plus live-daemon evidence; Installer does not contain an Evidence-specific health branch."
     - "Adapters resolve allowlisted tools from config.runtimeRoot, not a compile-time repository path."
     - "Before constructing a queued adapter command, the service validates contracts/evidence-runtime-contract.json and every current-platform allowlisted entrypoint inside runtimeRoot."
@@ -419,4 +430,4 @@ provider_release_reproducibility_2026_08_01:
     - "Both complete unsigned component archives and both provider-result predicates are byte-identical before signing or publication."
     - "The exact native toolchain receipt binds component id, target, source commit, workflow identity, and primary plus reproduction build roles."
     - "The Linux service artifact contains no native helper bytes and neither requires nor invents native toolchain evidence."
-    - "A mismatch blocks publication and reports both archive digests plus the first differing payload path."
+    - "A mismatch blocks publication and reports both archive digests plus the first differing payload path."}
