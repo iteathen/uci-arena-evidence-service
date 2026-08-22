@@ -29,10 +29,10 @@ north_star: >
 
 core_model:
   runtime_direction:
-    - "Search executes independently and continuously according to its own search-value and attention rules."
+    - "Any connected search/runtime executes independently according to its own contract and internal search-value or attention rules."
     - "Timing does not command search attention, depth, node allocation, work queues, or search topology."
-    - "A timing policy controls only how long the surrounding publication layer waits before requesting a move decision."
-    - "The move-decision operation samples the best currently available search evidence when publication is due; timing does not maintain or mutate search state."
+    - "A timing policy controls only downstream publication waiting/allocation; this service does not own move-decision or search-execution semantics."
+    - "Replacing the conforming search/runtime implementation must not require changing timing-evidence orchestration or timing-policy runtime semantics."
   evidence_direction:
     - "External runtime/search observations may flow one way into retained evidence."
     - "Those observations are not an immediate control dependency and need not be consumed during the same move or game."
