@@ -133,6 +133,8 @@ test("provider release proves independent target-scoped native reproducibility",
     true,
   );
   assert.match(workflow, /build\/native-repro/u);
+  assert.match(workflow, /ctest --test-dir build\/native -C Release --output-on-failure --no-tests=error/u);
+  assert.match(workflow, /ctest --test-dir build\/native-repro -C Release --output-on-failure --no-tests=error/u);
   assert.match(workflow, /provider_stage\/background_service_native_repro/u);
   assert.match(workflow, /native_toolchain_receipt\.mjs/u);
   assert.match(workflow, /dist\/provider-repro/u);

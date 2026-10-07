@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { NativeResourceHelper } from "@uci-arena/background-service-runtime/native-resource-helper";
+import queryContract from "@uci-arena/background-service-runtime/process-instance-query-contract" with { type: "json" };
 
 const execFileAsync = promisify(execFile);
 const repositoryRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -26,6 +28,12 @@ test("Windows native service helpers execute their packaged probes", async (t) =
     JSON.parse(guardResult.stdout).schema,
     "uci_arena_background_service_native_probe_v1",
   );
+  assert.ok(JSON.parse(guardResult.stdout).capabilities.includes(queryContract.capability));
+  const query = new NativeResourceHelper({ nativeHelper: guard, nativeHelperAvailable: true });
+  const current = query.queryProcessInstanceSync(process.pid);
+  assert.equal(current.state, "present");
+  assert.equal(current.identity.pid, process.pid);
+  assert.equal(current.identity.executable_path.toLowerCase(), process.execPath.toLowerCase());
 
   const launcherResult = await execFileAsync(launcher, ["--probe"], {
     timeout: 5_000,

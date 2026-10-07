@@ -18,6 +18,7 @@ const lockPath = path.join(vendor, "upstream.lock.json");
 const TEXT_EXTENSIONS = new Set([
   ".cpp",
   ".h",
+  ".hpp",
   ".json",
   ".md",
   ".mjs",
@@ -59,10 +60,10 @@ const files = Object.fromEntries(walk(vendor).map((name) => [
 if (process.argv.includes("--write")) {
   writeFileSync(lockPath, `${JSON.stringify({
     schema: "uci_arena_upstream_vendor_lock_v1",
-    source_repository: "iteathen/UCI_Arena",
-    source_commit: "1ee19a5c388a4528cb667bc4a89cde6e326919af",
+    source_repository: "iteathen/uci-arena-engine",
+    source_commit: "a535772f818eba76473e4f931dcfc7b764f0c6c5",
     packages: {
-      "@uci-arena/background-service-runtime": "1.0.2",
+      "@uci-arena/background-service-runtime": "1.2.0",
       "@uci-arena/time-profile-contract": "1.2.0",
     },
     files,
@@ -73,9 +74,9 @@ if (process.argv.includes("--write")) {
 
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 if (lock.schema !== "uci_arena_upstream_vendor_lock_v1"
-    || lock.source_repository !== "iteathen/UCI_Arena"
-    || lock.source_commit !== "1ee19a5c388a4528cb667bc4a89cde6e326919af"
-    || lock.packages?.["@uci-arena/background-service-runtime"] !== "1.0.2"
+    || lock.source_repository !== "iteathen/uci-arena-engine"
+    || lock.source_commit !== "a535772f818eba76473e4f931dcfc7b764f0c6c5"
+    || lock.packages?.["@uci-arena/background-service-runtime"] !== "1.2.0"
     || lock.packages?.["@uci-arena/time-profile-contract"] !== "1.2.0"
     || Object.keys(lock.packages ?? {}).length !== 2
     || JSON.stringify(lock.files) !== JSON.stringify(files)) {

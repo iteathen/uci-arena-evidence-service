@@ -29,7 +29,7 @@ import {
   sha256File,
 } from "../src/identity.mjs";
 import { acquireDaemonLock, publishQualifiedProfile, runDaemon } from "../src/daemon.mjs";
-import { currentProcessIdentity, probeProcessInstance } from "../src/process_identity.mjs";
+import { configureProcessIdentityProbe, currentProcessIdentity, probeProcessInstance } from "../src/process_identity.mjs";
 import {
   buildLinuxUserUnit,
   buildWindowsTaskXml,
@@ -44,6 +44,8 @@ import {
 import { listQualifiedProfiles } from "../src/profiles.mjs";
 import { ResourceGovernor } from "../src/resource_governor.mjs";
 
+import { NativeResourceHelper } from "@uci-arena/background-service-runtime/native-resource-helper";
+
 const runtimeIntegrationRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT?.trim()
   ? path.resolve(process.env.UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT)
   : repositoryRoot;
@@ -51,6 +53,7 @@ const runtimeIntegrationRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_TEST_ROOT?
 async function workspace() {
   const root = await mkdtemp(path.join(os.tmpdir(), "arena-evidence-test-"));
   const config = await loadConfig({ workspace: root });
+  await configureProcessIdentityProbe(new NativeResourceHelper(config));
   config.runtimeRoot = path.join(root, "runtime-component");
   for (const relative of [
     "engine/tools/qualify_uci_time_profile.mjs",
@@ -1407,7 +1410,7 @@ test("daemon lock reclaims pid reuse without displacing an exact live owner", as
   const current = currentProcessIdentity();
   const replaced = {
     ...current,
-    start_token: current.start_token === "1" ? "2" : "1",
+    start_token: (BigInt(current.start_token) + 1n).toString(),
   };
   const stale = new Date(Date.now() - config.daemon.staleMs - 10_000);
   writeFileSync(filename, `${JSON.stringify({
@@ -1496,11 +1499,11 @@ test("startup teardown waits for the exact process with a bounded deadline", asy
     schema: "uci_arena_process_instance_identity_v1",
     platform: "win32",
     pid: 42,
-    start_token: "100",
+    start_token: "639120000000000000",
     executable_path: "C:\\provider\\node.exe",
     boot_id: "",
   };
-  const reused = { ...owner, start_token: "200" };
+  const reused = { ...owner, start_token: "639120000000000001" };
   assert.equal(await waitForProcessExit(42, {
     timeoutMs: 20,
     pollMs: 1,
@@ -1518,7 +1521,7 @@ test("startup teardown waits for the exact process with a bounded deadline", asy
 test("startup teardown never treats unverifiable process identity as exit", async () => {
   const identity = {
     schema: "uci_arena_process_instance_identity_v1", platform: "win32", pid: 42,
-    start_token: "100", executable_path: "C:\\provider\\node.exe", boot_id: "",
+    start_token: "639120000000000000", executable_path: "C:\\provider\\node.exe", boot_id: "",
   };
   for (const observed of [
     { state: "unverifiable" },
@@ -1610,7 +1613,7 @@ test("Windows exact identity subprocess consumes the supplied remaining budget",
 test("startup teardown budgets its synchronous identity probe and never probes after deadline", async () => {
   const identity = {
     schema: "uci_arena_process_instance_identity_v1", platform: "win32", pid: 42,
-    start_token: "100", executable_path: "C:\\provider\\node.exe", boot_id: "",
+    start_token: "639120000000000000", executable_path: "C:\\provider\\node.exe", boot_id: "",
   };
   let monotonic = 10;
   const budgets = [];
@@ -1629,7 +1632,7 @@ test("startup teardown budgets its synchronous identity probe and never probes a
 test("startup teardown shrinks probe budgets and rejects exit evidence observed after its bound", async () => {
   const identity = {
     schema: "uci_arena_process_instance_identity_v1", platform: "win32", pid: 42,
-    start_token: "100", executable_path: "C:\\provider\\node.exe", boot_id: "",
+    start_token: "639120000000000000", executable_path: "C:\\provider\\node.exe", boot_id: "",
   };
   let monotonic = 0;
   const budgets = [];
