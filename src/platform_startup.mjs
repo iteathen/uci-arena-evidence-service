@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
@@ -14,6 +14,8 @@ import {
   processInstanceIsCurrent,
   sameProcessInstance,
 } from "./process_identity.mjs";
+
+import { daemonOwnerFromRecord, readDaemonRecord } from "./daemon_owner_record.mjs";
 
 const execFileAsync = promisify(execFile);
 export const windowsTaskName = "UCI Arena Evidence Service";
@@ -121,34 +123,8 @@ export function processAlive(pid) {
 }
 
 async function readDaemonOwner(config) {
-  try {
-    const filename = path.join(config.paths.locks, daemonLockName);
-    const info = await lstat(filename);
-    if (!info.isFile() || info.isSymbolicLink() || info.size > 16_384) {
-      throw new Error("invalid daemon owner file");
-    }
-    const raw = await readFile(filename, "utf8");
-    const value = JSON.parse(raw);
-    const pid = value?.pid;
-    if (!value || typeof value !== "object" || Array.isArray(value)
-        || !Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffff_ffff
-        || (value.schema !== undefined && value.schema !== "uci_arena_evidence_daemon_lock_v2")) {
-      throw new Error("invalid daemon owner record");
-    }
-    const hasIdentity = Object.hasOwn(value, "processIdentity");
-    const identity = hasIdentity ? processIdentityFromJson(value.processIdentity, pid) : null;
-    if ((hasIdentity || value.schema === "uci_arena_evidence_daemon_lock_v2")
-        && !identity) throw new Error("invalid daemon owner identity");
-    return {
-      pid,
-      identity,
-      nonce: typeof value.nonce === "string" ? value.nonce : "",
-      raw,
-    };
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    throw new Error("Evidence daemon ownership is malformed or unverifiable");
-  }
+  const packet = await readDaemonRecord(path.join(config.paths.locks, daemonLockName));
+  return packet ? daemonOwnerFromRecord(packet) : null;
 }
 
 export async function readDaemonOwnerPid(config) {

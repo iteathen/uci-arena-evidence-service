@@ -65,6 +65,24 @@ runtime:
         verified exit it removes only a lock still owned by that dead process.
       - Startup status reports registration presence, current-configuration
         agreement, and live daemon activity as separate fields.
+      - Windows process-instance observation uses only the explicitly selected,
+        capability-qualified public native process query from the immutable
+        shared runtime package. Identity-dependent CLI operations qualify it
+        after configuration loading and before catalog construction; direct
+        daemon composition qualifies it before singleton acquisition. Pure
+        description/configuration operations require no identity dependency.
+        There is no PowerShell identity fallback, prewarm, or supervisor-start
+        coupling. Linux retains its procfs process-birth identity.
+      - Native identity requests preserve the default two-second bound and
+        consume the caller's shrinking 1..2000 ms exit budget. Persisted Windows
+        identity fields use the public contract's exact string tick, PID, and
+        32767 UTF-16-unit path domain without numeric coercion.
+      - One owned daemon-record reader bounds input to the public native
+        response byte budget (262144 bytes), decodes UTF-8 without replacement,
+        and serves both singleton acquisition and startup teardown. Malformed
+        or unknown records, schemas, fields, and declared identities fail
+        closed; only the recognized unversioned PID/nonce/started_at legacy
+        record may use the existing stale-heartbeat migration rule.
   single_instance: true
   heartbeat_seconds: 15
   stale_seconds: 300

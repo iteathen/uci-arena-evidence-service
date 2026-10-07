@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { NativeResourceHelper } from "@uci-arena/background-service-runtime/native-resource-helper";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -13,7 +14,7 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { lstat, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { open, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import {
@@ -36,13 +37,14 @@ import {
   timingProfilePermissions,
 } from "./time_profile_policy.mjs";
 import {
+  configureProcessIdentityProbe,
   currentProcessIdentity,
   probeProcessInstance,
   sameProcessInstance,
   validProcessIdentity,
 } from "./process_identity.mjs";
 
-const MAXIMUM_DAEMON_LOCK_BYTES = 16_384;
+import { daemonOwnerFromRecord, readDaemonRecord } from "./daemon_owner_record.mjs";
 const DAEMON_LOCK_SETTLE_MS = 10_000;
 
 function delay(milliseconds) {
@@ -53,26 +55,8 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-async function readLockPacket(filename) {
-  try {
-    const link = await lstat(filename);
-    if (!link.isFile() || link.isSymbolicLink() || link.size > MAXIMUM_DAEMON_LOCK_BYTES) {
-      return { value: null, raw: null, modifiedMs: link.mtimeMs };
-    }
-    const raw = await readFile(filename, "utf8");
-    try {
-      return { value: JSON.parse(raw), raw, modifiedMs: link.mtimeMs };
-    } catch {
-      return { value: null, raw, modifiedMs: link.mtimeMs };
-    }
-  } catch (error) {
-    if (error?.code === "ENOENT") return null;
-    return { value: null, raw: null, modifiedMs: 0 };
-  }
-}
-
 async function legacyHeartbeatIsFresh(config, lock, now) {
-  const heartbeat = await readLockPacket(config.daemonHeartbeatFile);
+  const heartbeat = await readDaemonRecord(config.daemonHeartbeatFile);
   const heartbeatAt = Date.parse(String(heartbeat?.value?.heartbeat_at ?? ""));
   return heartbeat?.value?.pid === lock?.pid
     && Number.isFinite(heartbeatAt)
@@ -81,7 +65,7 @@ async function legacyHeartbeatIsFresh(config, lock, now) {
 
 async function retireLock(filename, expected) {
   if (typeof expected?.raw !== "string") return false;
-  const current = await readLockPacket(filename);
+  const current = await readDaemonRecord(filename);
   if (typeof current?.raw !== "string" || current.raw !== expected.raw) return false;
   const retired = `${filename}.retired-${process.pid}-${randomUUID()}`;
   try {
@@ -111,13 +95,12 @@ export async function acquireDaemonLock(config, {
       break;
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
-      const packet = await readLockPacket(filename);
+      const packet = await readDaemonRecord(filename);
       if (!packet) continue;
       const age = Math.max(0, now() - packet.modifiedMs);
+      const owner = daemonOwnerFromRecord(packet);
       const lock = packet.value;
-      const recordedIdentity = validProcessIdentity(lock?.processIdentity, Number(lock?.pid))
-        ? lock.processIdentity
-        : null;
+      const recordedIdentity = owner.identity;
       let reclaimable = false;
       if (recordedIdentity) {
         const observed = probe(recordedIdentity.pid);
@@ -612,6 +595,7 @@ export async function runDaemon(catalog, config, {
   once = false,
   dependencies = {},
 } = {}) {
+  await configureProcessIdentityProbe(dependencies.processIdentityHelper ?? new NativeResourceHelper(config));
   const daemonLock = await acquireDaemonLock(config);
   catalog.recoverInterruptedJobs();
   const governor = dependencies.governor ?? new ResourceGovernor(config, catalog);

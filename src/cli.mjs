@@ -8,6 +8,8 @@ import { isAllowedAdapter } from "./adapters.mjs";
 import { Catalog } from "./catalog.mjs";
 import { enqueueFirstCampaign, jobFingerprint } from "./campaign.mjs";
 import { loadConfig } from "./config.mjs";
+import { NativeResourceHelper } from "@uci-arena/background-service-runtime/native-resource-helper";
+import { configureProcessIdentityProbe } from "./process_identity.mjs";
 import { runDaemon } from "./daemon.mjs";
 import { sha256File } from "./identity.mjs";
 import {
@@ -120,6 +122,9 @@ async function main(argv = process.argv.slice(2)) {
     return 0;
   }
   const config = await loadConfig({ configFile: options.config, workspace: options.workspace });
+  const identityDependent = ["init", "status", "daemon", "startup"].includes(positional[0])
+    || (positional[0] === "api" && ["status", "orchestration", "startup"].includes(positional[1]));
+  if (identityDependent) await configureProcessIdentityProbe(new NativeResourceHelper(config));
   await mkdir(config.workspace, { recursive: true });
   const catalog = new Catalog(config);
   try {

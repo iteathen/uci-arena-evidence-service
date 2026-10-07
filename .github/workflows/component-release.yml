@@ -75,10 +75,14 @@ jobs:
         run: |
           cmake -S vendor/background-service-runtime/native -B build/native -A x64
           cmake --build build/native --config Release
+          ctest --test-dir build/native -C Release --output-on-failure --no-tests=error
+          if ($LASTEXITCODE -ne 0) { throw "native process instance tests failed" }
           cmake --install build/native --config Release --prefix native
           cmake --install build/native --config Release --prefix provider_stage/background_service_native
           cmake -S vendor/background-service-runtime/native -B build/native-repro -A x64
           cmake --build build/native-repro --config Release
+          ctest --test-dir build/native-repro -C Release --output-on-failure --no-tests=error
+          if ($LASTEXITCODE -ne 0) { throw "reproduction native process instance tests failed" }
           cmake --install build/native-repro --config Release --prefix provider_stage/background_service_native_repro
       - run: npm run check
       - run: npm run acceptance:idle
