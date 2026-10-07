@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { packageRoot } from "./config.mjs";
@@ -151,18 +152,32 @@ export async function waitForProcessExit(
     alive = processAlive,
     identity = null,
     probe = probeProcessInstance,
+    now = () => performance.now(),
   } = {},
 ) {
-  const current = () => {
-    if (!identity) return alive(pid);
-    const observed = probe(pid);
-    return observed?.state === "present" && sameProcessInstance(identity, observed.identity);
-  };
-  const deadline = Date.now() + timeoutMs;
-  while (current() && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  const expected = identity ? processIdentityFromJson(identity, pid) : null;
+  if (identity && !expected) return false;
+  const deadline = now() + Math.min(timeoutMs, 2_000);
+  while (true) {
+    const remaining = Math.floor(deadline - now());
+    if (remaining < 1) return false;
+    if (expected) {
+      const observed = probe(pid, { timeoutMs: remaining });
+      if (now() > deadline) return false;
+      if (observed?.state === "absent") return true;
+      const actual = observed?.state === "present"
+        ? processIdentityFromJson(observed.identity, pid) : null;
+      if (!actual) return false;
+      if (!sameProcessInstance(expected, actual)) return true;
+    } else {
+      const stillAlive = alive(pid);
+      if (now() > deadline) return false;
+      if (!stillAlive) return true;
+    }
+    const delayMs = Math.min(pollMs, deadline - now());
+    if (delayMs <= 0) return false;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
-  return !current();
 }
 
 async function waitForDaemonActive(config, timeoutMs = 5_000) {
