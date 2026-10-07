@@ -422,6 +422,7 @@ test("timing adapter projects the exact MCGS topology without legacy policy inje
     resourceAuthority(),
   );
   assert.equal(harvested.envelopes.length, 1);
+  assert.equal(harvested.envelopes[0].authority.timing, true);
   assert.equal(harvested.envelopes[0].authority.profile_publication, true);
 
   const drifted = structuredClone(profile);
@@ -553,6 +554,77 @@ test("complete-game adapter keeps deterministic topology activation separate fro
     /activationDepth must be in 3\.\.64/,
   );
 });
+
+for (const version of [3, 4]) {
+  test(`complete-game v${version} harvest preserves runtime diagnostics without qualification authority`, async (t) => {
+    const config = await workspace();
+    const catalog = new Catalog(config);
+    closeWorkspaceAfter(t, config, catalog);
+    const target = catalog.addTarget(targetFixture(config));
+    const datasetId = catalog.createDataset({ campaign: "complete-game" });
+    const job = catalog.enqueueJob({
+      adapter: "complete_game", targetId: target.id, shardId: "diagnostic",
+      datasetId, config: {}, fingerprint: jobFingerprint({ completeGameVersion: version }),
+    });
+    const command = adapterCommand(job, target, config,
+      path.join(config.paths.attempts, job.id, "0001"));
+    const sourceSchema = `uci_arena_complete_game_matrix_v${version}`;
+    const record = {
+      schema: sourceSchema,
+      deployed_model: {
+        expected_model_id: target.modelId,
+        expected_model_fingerprint: target.modelFingerprint,
+        expected_provider: target.provider,
+      },
+      failures: [], completed: true, qualified: true, gates: { passed: true },
+      summary: { games: 2, complete: true },
+      runtime_contract: {
+        statistical_promotion_authority: false,
+        expected_parallel_topology: { search_core: "mcgs", threads: 1 },
+        activation_probe: { continuous_focus_valid: true, active_tickets: 4, ticket_capacity: 64 },
+      },
+    };
+    const raw = Buffer.from(`${JSON.stringify(record)}\n`);
+    mkdirSync(path.dirname(command.outputs[0].filename), { recursive: true });
+    writeFileSync(command.outputs[0].filename, raw);
+    for (const resource of [resourceAuthority(), {
+      ...resourceAuthority(), performance_authority: false, strength_authority: false,
+      default_tuning_authority: false, problems: ["contaminated_interval"],
+    }]) {
+      const { envelopes } = harvestAdapter(job, target, command, config, catalog, resource);
+      assert.equal(envelopes[0].source_schema, sourceSchema);
+      assert.deepEqual(envelopes[0].metrics, {
+        summary: { games: 2, complete: true },
+        runtime_contract: {
+          statistical_promotion_authority: false,
+          expected_parallel_topology: { search_core: "mcgs", threads: 1 },
+          activation_probe: { continuous_focus_valid: true, active_tickets: 4, ticket_capacity: 64 },
+        },
+        completed: true,
+      });
+      assert.equal(envelopes[0].authority.diagnostic, true);
+      assert.equal(envelopes[0].authority.timing, false);
+      assert.equal(envelopes[0].authority.strength, false);
+      assert.equal(envelopes[0].authority.profile_publication, false);
+      assert.ok(envelopes[0].authority.reasons.includes("complete_game_matrix_is_diagnostic_only"));
+    }
+    const stored = catalog.dataset(datasetId).observations[0];
+    assert.equal(stored.source_schema, sourceSchema);
+    assert.equal(stored.raw_sha256, createHash("sha256").update(raw).digest("hex"));
+    assert.deepEqual(readFileSync(path.join(config.paths.artifacts,
+      stored.raw_sha256.slice(0, 2), `${stored.raw_sha256}.raw`)), raw);
+    for (const [changed, diagnostic] of [
+      [{ schema: "uci_arena_complete_game_matrix_v5" }, /incompatible schema/],
+      [{ deployed_model: { ...record.deployed_model, expected_model_id: "other_model" } }, /complete-game model_id/],
+      [{ deployed_model: null, failures: [{ message: "focus verification failed" }] }, /reported failure: focus verification failed/],
+    ]) {
+      writeFileSync(command.outputs[0].filename, JSON.stringify({ ...record, ...changed }));
+      assert.throws(() => harvestAdapter(job, target, command, config, catalog,
+        resourceAuthority()), diagnostic);
+      assert.equal(catalog.dataset(datasetId).observationCount, 1);
+    }
+  });
+}
 
 test("runtime contract fails closed before adapter subprocess construction", async (t) => {
   const config = await workspace();

@@ -22,7 +22,10 @@ import { timingProfileCanPublish } from "./time_profile_policy.mjs";
 const OUTPUT_SCHEMAS = Object.freeze({
   timing_profile: new Set(["uci_time_profile_attempt_v3", "uci_time_profile_v3"]),
   paired_sprt: new Set(["uci_arena_paired_sprt_v2"]),
-  complete_game: new Set(["uci_arena_complete_game_matrix_v3"]),
+  complete_game: new Set([
+    "uci_arena_complete_game_matrix_v3",
+    "uci_arena_complete_game_matrix_v4",
+  ]),
 });
 const ADAPTERS = new Set(Object.keys(OUTPUT_SCHEMAS));
 const QUALIFIER_OWNED_OPTIONS = new Set([
@@ -758,6 +761,7 @@ function authorityFor(job, record, records, resource) {
       reasons.push("timing_profile_publication_gates_not_complete");
     }
   } else if (job.adapter === "complete_game") {
+    timing = false;
     strength = false;
     reasons.push("complete_game_matrix_is_diagnostic_only");
   } else if (job.adapter === "paired_sprt") {
@@ -881,7 +885,7 @@ function metricsFor(record) {
       moves: candidateMoves.map((move) => move.move),
     };
   }
-  if (record.schema === "uci_arena_complete_game_matrix_v3") {
+  if (OUTPUT_SCHEMAS.complete_game.has(record.schema)) {
     return {
       summary: record.summary ?? null,
       runtime_contract: record.runtime_contract ?? null,
