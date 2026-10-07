@@ -10,6 +10,11 @@ jobs:
   diagnose:
     runs-on: windows-latest
     timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        serialization: [convert_to_json, console_fields]
+        sample: [1, 2]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -21,7 +26,7 @@ jobs:
         run: npm ci
       - name: Capture raw process identity and owned-tree errors
         shell: pwsh
-        run: node tools/windows_lifecycle_diagnostic.mjs
+        run: node tools/windows_lifecycle_diagnostic.mjs ${{ matrix.serialization }}
       - name: Run unchanged failing lifecycle gates
         if: always()
         shell: pwsh
