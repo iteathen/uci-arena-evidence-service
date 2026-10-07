@@ -111,12 +111,12 @@ export function windowsTaskMatchesConfiguration(xml, config) {
 }
 
 export function processAlive(pid) {
-  if (!Number.isSafeInteger(pid) || pid <= 0) return false;
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffff_ffff) return null;
   try {
     process.kill(pid, 0);
     return true;
   } catch (error) {
-    return error?.code === "EPERM";
+    return error?.code === "ESRCH" ? false : null;
   }
 }
 
@@ -124,19 +124,30 @@ async function readDaemonOwner(config) {
   try {
     const filename = path.join(config.paths.locks, daemonLockName);
     const info = await lstat(filename);
-    if (!info.isFile() || info.isSymbolicLink() || info.size > 16_384) return null;
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 16_384) {
+      throw new Error("invalid daemon owner file");
+    }
     const raw = await readFile(filename, "utf8");
     const value = JSON.parse(raw);
-    const pid = Number(value?.pid);
-    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+    const pid = value?.pid;
+    if (!value || typeof value !== "object" || Array.isArray(value)
+        || !Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffff_ffff
+        || (value.schema !== undefined && value.schema !== "uci_arena_evidence_daemon_lock_v2")) {
+      throw new Error("invalid daemon owner record");
+    }
+    const hasIdentity = Object.hasOwn(value, "processIdentity");
+    const identity = hasIdentity ? processIdentityFromJson(value.processIdentity, pid) : null;
+    if ((hasIdentity || value.schema === "uci_arena_evidence_daemon_lock_v2")
+        && !identity) throw new Error("invalid daemon owner identity");
     return {
       pid,
-      identity: processIdentityFromJson(value.processIdentity, pid),
+      identity,
       nonce: typeof value.nonce === "string" ? value.nonce : "",
       raw,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw new Error("Evidence daemon ownership is malformed or unverifiable");
   }
 }
 
@@ -155,8 +166,12 @@ export async function waitForProcessExit(
     now = () => performance.now(),
   } = {},
 ) {
-  const expected = identity ? processIdentityFromJson(identity, pid) : null;
-  if (identity && !expected) return false;
+  if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffff_ffff
+      || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0
+      || !Number.isSafeInteger(pollMs) || pollMs <= 0) return false;
+  const hasIdentity = identity !== null && identity !== undefined;
+  const expected = hasIdentity ? processIdentityFromJson(identity, pid) : null;
+  if (hasIdentity && !expected) return false;
   const deadline = now() + Math.min(timeoutMs, 2_000);
   while (true) {
     const remaining = Math.floor(deadline - now());
@@ -172,7 +187,8 @@ export async function waitForProcessExit(
     } else {
       const stillAlive = alive(pid);
       if (now() > deadline) return false;
-      if (!stillAlive) return true;
+      if (stillAlive === false) return true;
+      if (stillAlive !== true) return false;
     }
     const delayMs = Math.min(pollMs, deadline - now());
     if (delayMs <= 0) return false;
