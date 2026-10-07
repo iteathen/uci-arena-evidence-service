@@ -29,11 +29,12 @@ import {
   sha256File,
 } from "../src/identity.mjs";
 import { acquireDaemonLock, publishQualifiedProfile, runDaemon } from "../src/daemon.mjs";
-import { currentProcessIdentity } from "../src/process_identity.mjs";
+import { currentProcessIdentity, probeProcessInstance } from "../src/process_identity.mjs";
 import {
   buildLinuxUserUnit,
   buildWindowsTaskXml,
   linuxUnitName,
+  readDaemonOwnerPid,
   recoverStartup,
   waitForProcessExit,
   windowsStartupAction,
@@ -1511,6 +1512,140 @@ test("startup teardown waits for the exact process with a bounded deadline", asy
     pollMs: 1,
     identity: owner,
     probe: () => ({ state: "present", identity: owner }),
+  }), false);
+});
+
+test("startup teardown never treats unverifiable process identity as exit", async () => {
+  const identity = {
+    schema: "uci_arena_process_instance_identity_v1", platform: "win32", pid: 42,
+    start_token: "100", executable_path: "C:\\provider\\node.exe", boot_id: "",
+  };
+  for (const observed of [
+    { state: "unverifiable" },
+    { state: "present", identity: null },
+    { state: "present", identity: { ...identity, start_token: "malformed" } },
+    { state: "unknown" },
+  ]) {
+    assert.equal(await waitForProcessExit(42, {
+      identity, timeoutMs: 20, probe: () => observed,
+    }), false);
+  }
+  assert.equal(await waitForProcessExit(42, {
+    identity, timeoutMs: 20, probe: () => ({ state: "absent" }),
+  }), true);
+});
+
+test("startup teardown rejects explicit malformed identities before any query", async () => {
+  let queries = 0;
+  const noExitQuery = { alive: () => { ++queries; return false; },
+    probe: () => { ++queries; return { state: "absent" }; } };
+  for (const identity of [false, 0, "", {}, "malformed"]) {
+    assert.equal(await waitForProcessExit(42, { ...noExitQuery, identity }), false);
+  }
+  for (const pid of [0, -1, "42", NaN, Infinity, 0x1_0000_0000]) {
+    assert.equal(await waitForProcessExit(pid, noExitQuery), false);
+  }
+  assert.equal(queries, 0);
+  assert.equal(await waitForProcessExit(42, { alive: () => false }), true);
+  assert.equal(await waitForProcessExit(42, { identity: null, alive: () => false }), true);
+});
+
+test("startup teardown rejects invalid waiting budgets before any query", async () => {
+  let queries = 0;
+  const noExitQuery = { alive: () => { ++queries; return false; },
+    probe: () => { ++queries; return { state: "absent" }; } };
+  for (const timeoutMs of [NaN, Infinity, -Infinity, 0, -1, "20", 1.5]) {
+    assert.equal(await waitForProcessExit(42, { ...noExitQuery, timeoutMs }), false);
+  }
+  for (const pollMs of [NaN, Infinity, 0, -1, "1", 1.5]) {
+    assert.equal(await waitForProcessExit(42, { ...noExitQuery, pollMs }), false);
+  }
+  assert.equal(queries, 0);
+});
+
+test("legacy startup exit accepts only proven absence from the OS liveness check", async (t) => {
+  for (const [code, exited] of [["ESRCH", true], ["EPERM", false], ["EIO", false], [undefined, false]]) {
+    const kill = t.mock.method(process, "kill", () => { throw Object.assign(new Error("probe failed"), { code }); });
+    assert.equal(await waitForProcessExit(42, { timeoutMs: 20, pollMs: 1 }), exited);
+    kill.mock.restore();
+  }
+  for (const result of [null, undefined, 0, ""]) {
+    assert.equal(await waitForProcessExit(42, { alive: () => result }), false);
+  }
+});
+
+test("startup owner parsing rejects malformed exact identity instead of downgrading to legacy PID", async (t) => {
+  const config = await workspace();
+  closeWorkspaceAfter(t, config);
+  const filename = path.join(config.paths.locks, "daemon.lock");
+  assert.equal(await readDaemonOwnerPid(config), null);
+  mkdirSync(config.paths.locks, { recursive: true });
+  for (const processIdentity of [null, false, 0, "", {}, "malformed"]) {
+    writeFileSync(filename, JSON.stringify({ schema: "uci_arena_evidence_daemon_lock_v2", pid: 42, processIdentity }));
+    await assert.rejects(readDaemonOwnerPid(config), /daemon ownership is malformed or unverifiable/);
+  }
+  writeFileSync(filename, JSON.stringify({ schema: "uci_arena_evidence_daemon_lock_v2", pid: 42 }));
+  await assert.rejects(readDaemonOwnerPid(config), /daemon ownership is malformed or unverifiable/);
+  writeFileSync(filename, "{corrupt");
+  await assert.rejects(readDaemonOwnerPid(config), /daemon ownership is malformed or unverifiable/);
+  for (const value of [null, [], { pid: "42" }, { pid: 0x1_0000_0000 }, { schema: "unknown", pid: 42 }]) {
+    writeFileSync(filename, JSON.stringify(value));
+    await assert.rejects(readDaemonOwnerPid(config), /daemon ownership is malformed or unverifiable/);
+  }
+  writeFileSync(filename, JSON.stringify({ pid: 42 }));
+  assert.equal(await readDaemonOwnerPid(config), 42);
+});
+
+test("exact identity probes reject zero or expanded lifecycle query budgets", () => {
+  for (const timeoutMs of [0, -1, 2_001]) {
+    assert.equal(probeProcessInstance(process.pid, { timeoutMs }).state, "unverifiable");
+  }
+});
+
+test("Windows exact identity subprocess consumes the supplied remaining budget", (t) => {
+  if (process.platform !== "win32") return t.skip("Windows subprocess deadline");
+  assert.equal(probeProcessInstance(process.pid, { timeoutMs: 1 }).state, "unverifiable");
+});
+
+test("startup teardown budgets its synchronous identity probe and never probes after deadline", async () => {
+  const identity = {
+    schema: "uci_arena_process_instance_identity_v1", platform: "win32", pid: 42,
+    start_token: "100", executable_path: "C:\\provider\\node.exe", boot_id: "",
+  };
+  let monotonic = 10;
+  const budgets = [];
+  const exited = await waitForProcessExit(42, {
+    identity, timeoutMs: 3_000, now: () => monotonic,
+    probe: (_pid, options) => {
+      budgets.push(options?.timeoutMs);
+      monotonic += 2_000;
+      return { state: "present", identity };
+    },
+  });
+  assert.equal(exited, false);
+  assert.deepEqual(budgets, [2_000]);
+});
+
+test("startup teardown shrinks probe budgets and rejects exit evidence observed after its bound", async () => {
+  const identity = {
+    schema: "uci_arena_process_instance_identity_v1", platform: "win32", pid: 42,
+    start_token: "100", executable_path: "C:\\provider\\node.exe", boot_id: "",
+  };
+  let monotonic = 0;
+  const budgets = [];
+  assert.equal(await waitForProcessExit(42, {
+    identity, timeoutMs: 2_000, pollMs: 1, now: () => monotonic,
+    probe: (_pid, options) => {
+      budgets.push(options?.timeoutMs);
+      monotonic += budgets.length === 1 ? 1_500 : 500;
+      return { state: "present", identity };
+    },
+  }), false);
+  assert.deepEqual(budgets, [2_000, 500]);
+  monotonic = 0;
+  assert.equal(await waitForProcessExit(42, {
+    identity, timeoutMs: 2_000, now: () => monotonic,
+    probe: () => { monotonic = 2_001; return { state: "absent" }; },
   }), false);
 });
 

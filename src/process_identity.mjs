@@ -84,7 +84,7 @@ function linuxProcessIdentity(pid) {
   }
 }
 
-function windowsProcessIdentity(pid) {
+function windowsProcessIdentity(pid, timeoutMs) {
   try {
     const stdout = execFileSync(
       "powershell.exe",
@@ -92,7 +92,7 @@ function windowsProcessIdentity(pid) {
       {
         encoding: "utf8",
         windowsHide: true,
-        timeout: 2_000,
+        timeout: timeoutMs,
         maxBuffer: 16_384,
         env: { ...process.env, UCI_ARENA_PROCESS_PROBE_PID: String(pid) },
       },
@@ -107,12 +107,15 @@ function windowsProcessIdentity(pid) {
   }
 }
 
-export function probeProcessInstance(pid) {
+export function probeProcessInstance(pid, { timeoutMs = 2_000 } = {}) {
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffff_ffff) {
     return { state: "absent" };
   }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_000) {
+    return { state: "unverifiable" };
+  }
   if (process.platform === "linux") return linuxProcessIdentity(pid);
-  if (process.platform === "win32") return windowsProcessIdentity(pid);
+  if (process.platform === "win32") return windowsProcessIdentity(pid, timeoutMs);
   return { state: "unverifiable" };
 }
 
