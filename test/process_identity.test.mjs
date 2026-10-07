@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, rm } from "node:fs/promises";
 import { readFileSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -97,6 +97,36 @@ test("pure public description does not require an unavailable identity helper", 
     "--config", filename, "api", "describe"], { encoding: "utf8", windowsHide: true, timeout: 5000 }));
   assert.equal(result.ok, true);
 });
+
+for (const format of ["exact v2", "legacy"]) {
+  for (const [name, observed] of [
+    ["null present identity", { state: "present", identity: null }],
+    ["wrong present PID", { state: "present", identity: { ...identity, pid: process.pid + 1 } }],
+    ["malformed present identity", { state: "present", identity: { ...identity, start_token: "malformed" } }],
+    ["unverifiable observation", { state: "unverifiable" }],
+    ["unknown observation", { state: "unknown" }],
+  ]) test(`${format} lock cannot be reclaimed from ${name}`, async (t) => {
+    const config = await workspace(t);
+    const filename = path.join(config.paths.locks, "daemon.lock");
+    const value = { pid: process.pid, nonce: "prior-owner", started_at: "2026-01-01T00:00:00.000Z" };
+    if (format === "exact v2") Object.assign(value, {
+      schema: "uci_arena_evidence_daemon_lock_v2", processIdentity: identity,
+    });
+    const raw = JSON.stringify(value);
+    writeFileSync(filename, raw);
+    const old = new Date(Date.now() - 400000);
+    utimesSync(filename, old, old);
+    let probes = 0;
+    await assert.rejects(async () => {
+      const unexpected = await acquireDaemonLock(config, { identity,
+        probe: (pid) => { ++probes; assert.equal(pid, process.pid); return observed; } });
+      await unexpected.release();
+    }, /owns|unverifiable/);
+    assert.equal(probes, 1);
+    assert.equal(readFileSync(filename, "utf8"), raw);
+    assert.deepEqual(await readdir(config.paths.locks), ["daemon.lock"]);
+  });
+}
 
 test("persisted Linux birth identity retains its procfs token and case-sensitive executable comparison", () => {
   const linux = { ...identity, platform: "linux", start_token: "100", executable_path: "/usr/bin/node", boot_id: "boot-id" };

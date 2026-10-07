@@ -102,21 +102,17 @@ export async function acquireDaemonLock(config, {
       const lock = packet.value;
       const recordedIdentity = owner.identity;
       let reclaimable = false;
-      if (recordedIdentity) {
-        const observed = probe(recordedIdentity.pid);
-        if (observed?.state === "unverifiable") {
+      if (recordedIdentity || age >= DAEMON_LOCK_SETTLE_MS) {
+        const observed = probe(owner.pid);
+        const absent = observed?.state === "absent";
+        const observedIdentity = observed?.state === "present"
+          && validProcessIdentity(observed.identity, owner.pid) ? observed.identity : null;
+        if (!absent && !observedIdentity) {
           throw new Error(`another Arena Evidence daemon has unverifiable ownership of ${filename}`);
         }
-        reclaimable = observed?.state === "absent"
-          || (observed?.state === "present"
-            && !sameProcessInstance(recordedIdentity, observed.identity));
-      } else if (age >= DAEMON_LOCK_SETTLE_MS) {
-        const observed = Number.isSafeInteger(lock?.pid) && lock.pid > 0
-          ? probe(lock.pid)
-          : { state: "absent" };
-        reclaimable = observed?.state === "absent"
-          || (age >= config.daemon.staleMs
-            && !await legacyHeartbeatIsFresh(config, lock, now()));
+        reclaimable = absent || (recordedIdentity
+          ? !sameProcessInstance(recordedIdentity, observedIdentity)
+          : age >= config.daemon.staleMs && !await legacyHeartbeatIsFresh(config, lock, now()));
       }
       if (!reclaimable || age < DAEMON_LOCK_SETTLE_MS || attempt > 1) {
         throw new Error(`another Arena Evidence daemon owns ${filename}`);
