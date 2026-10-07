@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Diagnostic branch only: preserve production deadlines and log primitive errors.
+// Diagnostic branch only: observe cold duration without changing production limits.
 import { execFileSync, execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync, existsSync, mkdirSync } from "node:fs";
@@ -30,37 +30,26 @@ const source = readFileSync("src/process_identity.mjs", "utf8");
 const exact = source.match(/const WINDOWS_PROBE = String.raw`([\s\S]*?)`;/u)?.[1];
 if (!exact) throw new Error("exact production Windows identity primitive unavailable");
 if (process.platform !== "win32") throw new Error("Windows-only lifecycle diagnostic");
-const primitives = new Map([
-  ["exact_identity", exact],
-  ["powershell_startup", '[Console]::Out.Write("ready")'],
-  ["start_time", '$ErrorActionPreference="Stop"; $p=[System.Diagnostics.Process]::GetProcessById([int]$env:UCI_ARENA_PROCESS_PROBE_PID); [Console]::Out.Write($p.StartTime.ToUniversalTime().Ticks)'],
-  ["main_module", '$ErrorActionPreference="Stop"; $p=[System.Diagnostics.Process]::GetProcessById([int]$env:UCI_ARENA_PROCESS_PROBE_PID); [Console]::Out.Write($p.MainModule.FileName)'],
-]);
-const firstPrimitive = process.argv[2] ?? "exact_identity";
-if (!primitives.has(firstPrimitive)) throw new Error("unknown first diagnostic primitive");
-const scripts = [
-  [firstPrimitive, primitives.get(firstPrimitive)],
-  ...[...primitives].filter(([kind]) => kind !== firstPrimitive),
-];
-for (let round = 0; round < 3; ++round) {
-  for (const [kind, script] of scripts) {
-    const before = performance.now();
-    let outcome;
-    try {
-      const stdout = execFileSync("powershell.exe", [
-        "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script,
-      ], {
-        encoding: "utf8", windowsHide: true, timeout: 2_000, maxBuffer: 16_384,
-        env: { ...process.env, UCI_ARENA_PROCESS_PROBE_PID: String(process.pid) },
-      });
-      outcome = { ok: true, stdout: stdout.slice(0, 512) };
-    } catch (error) {
-      outcome = { ok: false, ...primitiveError(error) };
-    }
-    emit({ kind, first_primitive: firstPrimitive, cold_first: round === 0
-      && kind === firstPrimitive, round, elapsed_ms: elapsed(before), ...outcome });
-  }
+// Only this measurement may outlive the existing 2000ms primitive deadline.
+// It is not a proposed runtime allowance, retry, prewarm, or qualification pass.
+const observationStarted = performance.now();
+let observation;
+try {
+  const stdout = execFileSync("powershell.exe", [
+    "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", exact,
+  ], {
+    encoding: "utf8", windowsHide: true, timeout: 30_000, maxBuffer: 16_384,
+    env: { ...process.env, UCI_ARENA_PROCESS_PROBE_PID: String(process.pid) },
+  });
+  observation = { ok: true, stdout: stdout.slice(0, 512) };
+} catch (error) {
+  observation = { ok: false, ...primitiveError(error) };
 }
+const observationElapsed = elapsed(observationStarted);
+emit({ kind: "cold_exact_observation", cold_first: true,
+  diagnostic_observation_limit_ms: 30_000, existing_primitive_limit_ms: 2_000,
+  elapsed_ms: observationElapsed, exceeds_existing_2000ms: observationElapsed > 2_000,
+  ...observation });
 const before = performance.now();
 emit({ kind: "production_probe", result: probeProcessInstance(process.pid),
   elapsed_ms: elapsed(before) });
