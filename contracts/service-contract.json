@@ -53,6 +53,18 @@
     "dataset_schema": "uci_arena_evidence_dataset_v1",
     "profile_schema": "uci_arena_evidence_profile_v1"
   },
+  "runtime_compatibility": {
+    "component_id": "uci_arena_evidence.runtime",
+    "contract_schema": "uci_arena_evidence_runtime_v1",
+    "complete_game": {
+      "entrypoint": "arena/run_complete_game_matrix.mjs",
+      "output_schemas": [
+        "uci_arena_complete_game_matrix_v3",
+        "uci_arena_complete_game_matrix_v4"
+      ],
+      "authority": "diagnostic_only"
+    }
+  },
   "persistence": {
     "upgrade": "preserve_and_migrate",
     "repair": "preserve",
