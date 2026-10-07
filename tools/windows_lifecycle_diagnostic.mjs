@@ -6,9 +6,7 @@ import { readFileSync, existsSync, mkdirSync } from "node:fs";
 import { promisify } from "node:util";
 import { performance } from "node:perf_hooks";
 import path from "node:path";
-import {
-  probeProcessInstance, validProcessIdentity, sameProcessInstance,
-} from "../src/process_identity.mjs";
+import { probeProcessInstance } from "../src/process_identity.mjs";
 
 const execute = promisify(execFile);
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -32,49 +30,17 @@ const source = readFileSync("src/process_identity.mjs", "utf8");
 const exact = source.match(/const WINDOWS_PROBE = String.raw`([\s\S]*?)`;/u)?.[1];
 if (!exact) throw new Error("exact production Windows identity primitive unavailable");
 if (process.platform !== "win32") throw new Error("Windows-only lifecycle diagnostic");
-const jsonOutput = '[Console]::Out.Write(($payload | ConvertTo-Json -Compress -Depth 3))';
-if (!exact.includes(jsonOutput)) throw new Error("production serialization primitive changed");
-// Preserve the exact same identity collection; change only the serialization.
-const consoleFields = exact.replace(jsonOutput, String.raw`
-[Console]::Out.Write([string]::Join([string][char]10, [string[]]@(
-  $payload.state
-  $payload.identity.schema
-  $payload.identity.platform
-  $payload.identity.pid.ToString([System.Globalization.CultureInfo]::InvariantCulture)
-  $payload.identity.start_token
-  [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($payload.identity.executable_path))
-  $payload.identity.boot_id
-)))`);
-const serialization = process.argv[2] ?? "convert_to_json";
-if (!["convert_to_json", "console_fields"].includes(serialization)) {
-  throw new Error("unknown diagnostic serialization arm");
-}
-const selected = serialization === "console_fields" ? consoleFields : exact;
-function decodedIdentity(stdout, arm) {
-  if (arm === "convert_to_json") {
-    const result = JSON.parse(stdout);
-    return result.state === "present" && validProcessIdentity(result.identity, process.pid)
-      ? result.identity : null;
-  }
-  const fields = stdout.split("\n");
-  if (fields.length !== 7 || fields[0] !== "present"
-      || !/^[1-9][0-9]{0,9}$/u.test(fields[3])
-      || !/^[A-Za-z0-9+/]*={0,2}$/u.test(fields[5])) return null;
-  const encoded = Buffer.from(fields[5], "base64");
-  if (encoded.toString("base64") !== fields[5]) return null;
-  const executablePath = encoded.toString("utf8");
-  if (!Buffer.from(executablePath, "utf8").equals(encoded)) return null;
-  const identity = {
-    schema: fields[1], platform: fields[2], pid: Number(fields[3]),
-    start_token: fields[4], executable_path: executablePath, boot_id: fields[6],
-  };
-  return validProcessIdentity(identity, process.pid) ? identity : null;
-}
-const scripts = [
-  ["exact_identity_first", selected],
+const primitives = new Map([
+  ["exact_identity", exact],
   ["powershell_startup", '[Console]::Out.Write("ready")'],
   ["start_time", '$ErrorActionPreference="Stop"; $p=[System.Diagnostics.Process]::GetProcessById([int]$env:UCI_ARENA_PROCESS_PROBE_PID); [Console]::Out.Write($p.StartTime.ToUniversalTime().Ticks)'],
   ["main_module", '$ErrorActionPreference="Stop"; $p=[System.Diagnostics.Process]::GetProcessById([int]$env:UCI_ARENA_PROCESS_PROBE_PID); [Console]::Out.Write($p.MainModule.FileName)'],
+]);
+const firstPrimitive = process.argv[2] ?? "exact_identity";
+if (!primitives.has(firstPrimitive)) throw new Error("unknown first diagnostic primitive");
+const scripts = [
+  [firstPrimitive, primitives.get(firstPrimitive)],
+  ...[...primitives].filter(([kind]) => kind !== firstPrimitive),
 ];
 for (let round = 0; round < 3; ++round) {
   for (const [kind, script] of scripts) {
@@ -87,40 +53,14 @@ for (let round = 0; round < 3; ++round) {
         encoding: "utf8", windowsHide: true, timeout: 2_000, maxBuffer: 16_384,
         env: { ...process.env, UCI_ARENA_PROCESS_PROBE_PID: String(process.pid) },
       });
-      outcome = { ok: true, stdout: stdout.slice(0, 512),
-        ...(kind === "exact_identity_first"
-          ? { identity_valid: Boolean(decodedIdentity(stdout, serialization)) } : {}) };
+      outcome = { ok: true, stdout: stdout.slice(0, 512) };
     } catch (error) {
       outcome = { ok: false, ...primitiveError(error) };
     }
-    emit({ kind, serialization, round, elapsed_ms: elapsed(before), ...outcome });
+    emit({ kind, first_primitive: firstPrimitive, cold_first: round === 0
+      && kind === firstPrimitive, round, elapsed_ms: elapsed(before), ...outcome });
   }
 }
-const observed = {};
-for (const [arm, script] of [["convert_to_json", exact], ["console_fields", consoleFields]]) {
-  const before = performance.now();
-  try {
-    const stdout = execFileSync("powershell.exe", [
-      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script,
-    ], {
-      encoding: "utf8", windowsHide: true, timeout: 2_000, maxBuffer: 16_384,
-      env: { ...process.env, UCI_ARENA_PROCESS_PROBE_PID: String(process.pid) },
-    });
-    observed[arm] = decodedIdentity(stdout, arm);
-    emit({ kind: "serialization_equivalence", arm, elapsed_ms: elapsed(before),
-      ok: Boolean(observed[arm]) });
-  } catch (error) {
-    emit({ kind: "serialization_equivalence", arm, elapsed_ms: elapsed(before),
-      ok: false, ...primitiveError(error) });
-  }
-}
-emit({ kind: "serialization_identity_comparison",
-  equivalent: sameProcessInstance(observed.convert_to_json, observed.console_fields),
-  fields_equal: Boolean(observed.convert_to_json && observed.console_fields)
-    && JSON.stringify(Object.keys(observed.convert_to_json).sort())
-      === JSON.stringify(Object.keys(observed.console_fields).sort())
-    && Object.keys(observed.convert_to_json).every((field) =>
-      observed.convert_to_json[field] === observed.console_fields[field]) });
 const before = performance.now();
 emit({ kind: "production_probe", result: probeProcessInstance(process.pid),
   elapsed_ms: elapsed(before) });
