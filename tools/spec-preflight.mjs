@@ -9,6 +9,7 @@ const specs = new Set([
 if (changed.length === 0 || changed.some((name) =>
   /^(src|test|fixtures|contracts|release|tools|package)/u.test(name))) {
   specs.add("specs/uci_arena_evidence_service_v1.yaml");
+  specs.add('specs/evidence_runtime_v2.md');
 }
 process.stdout.write(`${JSON.stringify({
   schema: "evidence_service_spec_preflight_v1",

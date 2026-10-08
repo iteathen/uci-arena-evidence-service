@@ -48,11 +48,9 @@
     "workspace_placement": "product_data",
     "configure_when_disabled": false,
     "dependency_bindings": [
-      {"name": "evidence_runtime_root", "component_id": "uci_arena_evidence.runtime", "source": "active_root", "required": true},
-      {"name": "engine", "component_id": "uci_arena.engine", "source": "entrypoint", "entrypoint": "uci", "required": true},
-      {"name": "model_root", "component_id": "uci_arena.engine", "source": "component_path", "path": "models/default", "required": true},
-      {"name": "stockfish", "component_id": "stockfish.engine", "source": "entrypoint", "entrypoint": "stockfish", "required": true},
-      {"name": "referee", "component_id": "uci_arena_evidence.runtime", "source": "entrypoint", "entrypoint": "referee", "required": true}
+      {"name": "evidence_runtime_root", "component_id": "uci_arena.vector", "source": "active_root", "required": true},
+      {"name": "engine_component_manifest", "component_id": "uci_arena.vector", "source": "component_path", "path": "arena-component.json", "required": true},
+      {"name": "engine_launch_profile", "component_id": "uci_arena.vector", "source": "entrypoint", "entrypoint": "uci_launch_profile", "required": true}
     ],
     "locator_bindings": [
       {"name": "timing_profile", "kind": "timing_profile", "required": false}
@@ -85,9 +83,7 @@
   },
   "dependencies": [
     {"component_id": "node_runtime.private", "required": true, "binding": "private_component_runtime"},
-    {"component_id": "uci_arena_evidence.runtime", "required": true, "binding": "explicit_runtime_root"},
-    {"component_id": "uci_arena.engine", "required": true, "binding": "explicit_engine_and_model_roots"},
-    {"component_id": "stockfish.engine", "required": true, "binding": "explicit_stockfish_path"}
+    {"component_id": "uci_arena.vector", "required": true, "binding": "selected_engine_evidence_contract"}
   ],
   "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "profile_list", "startup_install", "startup_recover", "startup_uninstall"],
   "startup": {"windows": "per_user_task_scheduler", "linux": "per_user_systemd"},

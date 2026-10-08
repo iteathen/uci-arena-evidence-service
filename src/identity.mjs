@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { runtimeRoot } from "./config.mjs";
+import { admitRuntimeTarget } from './runtime_v2_binding.mjs';
 
 export function sha256File(filename) {
   const digest = createHash("sha256");
@@ -10,6 +11,11 @@ export function sha256File(filename) {
 }
 
 export function targetIdentity(target) {
+  if(target.runtimeBinding) return {
+    schema:'uci_arena_evidence_target_identity_v2',target_id:target.id??null,label:target.label,
+    engine_sha256:target.engineSha256,launch:structuredClone(target.runtimeBinding.launch),
+    runtime_binding:structuredClone(target.runtimeBinding.runtime_binding),runtime_identity:structuredClone(target.runtimeBinding.identity),
+  };
   return {
     target_id: target.id ?? null,
     label: target.label,
@@ -33,6 +39,10 @@ export function resolveActiveTarget(config) {
     pointer = JSON.parse(readFileSync(config.activeModelPointer, "utf8"));
   } catch (error) {
     return { target: null, reason: `active model pointer is unreadable: ${error.message}` };
+  }
+  if(pointer.schema==='arena_installed_active_evidence_target_v2') {
+    try{return {target:{...admitRuntimeTarget(pointer.target),id:null,source:'active_model_pointer',pointerPath:config.activeModelPointer},reason:''};}
+    catch{return {target:null,reason:'active evidence target v2 is unavailable or incompatible'};}
   }
   const modelId = String(pointer.model_id ?? pointer.active_model_id ?? "").trim();
   const modelFingerprint = String(
@@ -126,6 +136,14 @@ export function resolveJobTarget(job, catalog, config) {
   }
   if (!target) {
     return { target: null, reason: resolutionReason || "no exact target is available" };
+  }
+  if(target.runtimeBinding) {
+    try {
+      const {identity,projection,...descriptor}=target.runtimeBinding;const admitted=admitRuntimeTarget(descriptor);
+      if(JSON.stringify(identity)!==JSON.stringify(admitted.runtimeBinding.identity)||target.engineSha256!==admitted.engineSha256
+        ||target.enginePath!==admitted.enginePath||JSON.stringify(target.uciOptions)!==JSON.stringify(admitted.uciOptions))return {target:null,reason:'target-specific runtime/launch identity drifted after enqueue'};
+      return {target,reason:''};
+    }catch{return {target:null,reason:'target-specific runtime capability is unavailable or incompatible'};}
   }
   if (!existsSync(target.enginePath)) {
     return { target: null, reason: `target engine is missing: ${target.enginePath}` };

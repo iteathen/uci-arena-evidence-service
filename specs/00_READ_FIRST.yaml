@@ -11,7 +11,7 @@ north_star: >
 
 hard_rules:
   - The service never imports UCI Arena, Book Forge, or Manager source.
-  - Runtime executors are supplied through the typed uci_arena_evidence.runtime component.
+  - Runtime executors are supplied through the typed legacy component or the explicitly admitted engine-owned JS v2 profile in evidence_runtime_v2.md.
   - Evidence authority requires exact identity and a clean resource interval.
   - Persistent datasets survive repair, upgrade, and normal uninstall.
   - Releases carry exact digests, SBOMs, test receipts, and keyless provenance.

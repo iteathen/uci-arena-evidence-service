@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { validateStoredProfile } from '../vendor/time-profile-contract/src/index.mjs';
+import { admitRuntimeTarget } from './runtime_v2_binding.mjs';
 
 const MAXIMUM_CONTEXT_BYTES = 1024 * 1024;
 const MAXIMUM_PROFILE_BYTES = 16 * 1024 * 1024;
@@ -112,6 +113,29 @@ export function renderInstallerConfiguration(context) {
   const workspace = requireAbsolutePath(context.workspace, 'workspace');
   const bindings = requireObject(context.bindings, 'bindings');
   const locators = requireObject(context.locators ?? {}, 'locators');
+  if(bindings.engine_launch_profile !== undefined) {
+    if(locators.timing_profile !== undefined) throw new Error('legacy timing profile cannot be applied to the v2 managed runtime');
+    const root=requireAbsolutePath(bindings.evidence_runtime_root,'bindings.evidence_runtime_root');
+    const manifestPath=requireAbsolutePath(bindings.engine_component_manifest,'bindings.engine_component_manifest');
+    const manifest=readBoundedJson(manifestPath,32*MAXIMUM_CONTEXT_BYTES,'engine component manifest');
+    const runtimeBinding={schema:'uci_arena_evidence_runtime_binding_v2',component:{id:manifest.component_id,version:manifest.component_version,
+      root,manifest:path.relative(root,manifestPath).replaceAll('\\','/'),manifest_sha256:sha256File(manifestPath).slice(7)},entrypoint:'evidence_runtime_contract'};
+    const launchProfilePath=requireAbsolutePath(bindings.engine_launch_profile,'bindings.engine_launch_profile');
+    const profile=readBoundedJson(launchProfilePath,MAXIMUM_CONTEXT_BYTES,'managed UCI launch profile');
+    if(profile.schema!=='arena_uci_engine_launch_profile_v1'||profile.schema_version!==1||profile.component?.id!==manifest.component_id
+      ||profile.component.version!==manifest.component_version||profile.component.root!=='.'||profile.enabled!==true
+      ||profile.engine?.adapter!=='standard_uci_v1'||!Array.isArray(profile.engine.arguments))throw new Error('managed UCI profile identity is incompatible');
+    const profileRelative=path.relative(root,launchProfilePath).replaceAll('\\','/');
+    const profileRow=manifest.files?.find(row=>row.path===profileRelative);
+    if(!profileRow||profileRow.sha256!==sha256File(launchProfilePath).slice(7)||profileRow.size_bytes!==lstatSync(launchProfilePath).size)throw new Error('managed UCI profile is absent from exact inventory');
+    const target={schema:'uci_arena_evidence_target_v2',label:manifest.component_id,launch:{executable:path.resolve(root,profile.engine.executable),
+      arguments:profile.engine.arguments,working_directory:path.resolve(root,profile.engine.working_directory),uci_options:profile.uci_options??{}},runtime_binding:runtimeBinding};
+    const admitted=admitRuntimeTarget(target);
+    const pointer={schema:'arena_installed_active_evidence_target_v2',target};
+    return {schema:'arena_provider_install_result_v1',schema_version:1,configuration:{schema:'uci_arena_evidence_service_config_v1',workspace,
+      activeModelPointer:path.join(workspace,'active-evidence-target.json'),profileImports:[],engine:admitted.enginePath},
+      generated_documents:[{path:'active-evidence-target.json',document:pointer}]};
+  }
   for (const name of ['evidence_runtime_root', 'engine', 'model_root', 'stockfish', 'referee']) {
     bindings[name] = requireAbsolutePath(bindings[name], `bindings.${name}`);
   }

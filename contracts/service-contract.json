@@ -1,7 +1,7 @@
 {
   "schema": "uci_arena_standalone_service_contract_v1",
   "component_id": "uci_arena_evidence.service",
-  "component_version": "0.3.14",
+  "component_version": "0.3.15",
   "cli_entrypoint": "services/evidence-service/src/cli.mjs",
   "configuration_schema": "uci_arena_evidence_service_config_v1",
   "status_schema": "uci_arena_evidence_status_v1",
@@ -56,6 +56,20 @@
   "runtime_compatibility": {
     "component_id": "uci_arena_evidence.runtime",
     "contract_schema": "uci_arena_evidence_runtime_v1",
+    "additional_profiles": [{
+      "capability": "evidence_runtime_contract_v2",
+      "entrypoint": "evidence_runtime_contract",
+      "contract_schema": "uci_arena_evidence_runtime_v2",
+      "request_schema": "uci_arena_evidence_request_v2",
+      "output_schema": "uci_arena_evidence_result_v2",
+      "target_schema": "uci_arena_evidence_target_v2",
+      "authority": "diagnostic_only",
+      "capability_admission": "selected_target_receipt_manifest_inventory_and_explicit_available_status",
+      "campaign_parameters": "inventoried_bounded_structural_json_schema",
+      "target_cli": ["api", "target", "register", "--target-json"],
+      "campaign_cli": ["api", "campaign", "enqueue", "--target", "--campaign", "--configuration-json"],
+      "maximum_cli_json_bytes": 8192
+    }],
     "complete_game": {
       "entrypoint": "arena/run_complete_game_matrix.mjs",
       "output_schemas": [

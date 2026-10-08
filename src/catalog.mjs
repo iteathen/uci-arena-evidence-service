@@ -2,12 +2,13 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { canonicalJson } from '@uci-arena/time-profile-contract';
 import {
   processIdentityFromJson,
   processInstanceIsCurrent,
 } from "./process_identity.mjs";
 
-const CATALOG_SCHEMA_VERSION = 2;
+const CATALOG_SCHEMA_VERSION = 3;
 const JOB_STATES = new Set([
   "queued",
   "waiting_for_target",
@@ -123,6 +124,12 @@ function parseJson(text, domain) {
     if (!plainObject(value)) throw new Error("JSON object required");
     validateTree(value);
     if (domain === "target_uci_options") validateUciOptions(value);
+    if(domain==='target_runtime_binding' && (value.schema!=='uci_arena_evidence_target_v2'||!plainObject(value.launch)||!plainObject(value.runtime_binding)||!plainObject(value.identity)||!plainObject(value.projection)
+      ||typeof value.launch.executable!=='string'||!Array.isArray(value.launch.arguments)||typeof value.launch.working_directory!=='string'||!plainObject(value.launch.uci_options)
+      ||value.runtime_binding.schema!=='uci_arena_evidence_runtime_binding_v2'||!plainObject(value.runtime_binding.component)
+      ||!Array.isArray(value.projection.capabilities)||!Array.isArray(value.projection.campaigns)||value.projection.campaigns.length>32
+      ||value.projection.capabilities.some(cap=>!plainObject(cap)||typeof cap.name!=='string'||!['available','unsupported'].includes(cap.status))
+      ||value.projection.campaigns.some(campaign=>!plainObject(campaign)||typeof campaign.name!=='string'||!Array.isArray(campaign.workloads)||!plainObject(campaign.parameters_schema))))throw new Error('runtime target binding shape');
     if (domain === "dataset_authority" || domain === "observation_authority") {
       validateAuthority(value);
     }
@@ -198,6 +205,7 @@ function targetRow(row) {
     hardwareDriverFingerprint: row.hardware_driver_fingerprint,
     uciOptions: parseJson(row.uci_options_json, "target_uci_options"),
     createdAt: row.created_at,
+    ...(row.runtime_binding_json===null||row.runtime_binding_json===undefined?{}:{runtimeBinding:parseJson(row.runtime_binding_json,'target_runtime_binding')}),
   };
 }
 
@@ -235,6 +243,7 @@ export class Catalog {
         provider TEXT NOT NULL,
         hardware_driver_fingerprint TEXT NOT NULL,
         uci_options_json TEXT NOT NULL,
+        runtime_binding_json TEXT,
         created_at TEXT NOT NULL
       ) WITHOUT ROWID;
       CREATE TABLE IF NOT EXISTS datasets (
@@ -334,7 +343,7 @@ export class Catalog {
     if (!version) {
       this.database.prepare("INSERT INTO metadata(key,value) VALUES('schema_version',?)")
         .run(String(CATALOG_SCHEMA_VERSION));
-    } else if (Number(version.value) === 1) {
+    } else if (Number(version.value) === 1 || Number(version.value) === 2) {
       const columns = new Set(this.database.prepare("PRAGMA table_info(daemon_state)").all()
         .map((column) => column.name));
       if (!columns.has("process_identity_json")) {
@@ -342,6 +351,8 @@ export class Catalog {
           "ALTER TABLE daemon_state ADD COLUMN process_identity_json TEXT NOT NULL DEFAULT ''",
         );
       }
+      const targetColumns=new Set(this.database.prepare('PRAGMA table_info(targets)').all().map(column=>column.name));
+      if(!targetColumns.has('runtime_binding_json'))this.database.exec('ALTER TABLE targets ADD COLUMN runtime_binding_json TEXT');
       this.database.prepare("UPDATE metadata SET value=? WHERE key='schema_version'")
         .run(String(CATALOG_SCHEMA_VERSION));
       version = { value: String(CATALOG_SCHEMA_VERSION) };
@@ -403,7 +414,7 @@ export class Catalog {
   }
 
   addTarget(target) {
-    const required = [
+    const required = target.runtimeBinding?['enginePath','engineSha256']:[
       "modelId",
       "modelRoot",
       "modelFingerprint",
@@ -414,10 +425,10 @@ export class Catalog {
     for (const field of required) {
       if (!String(target[field] ?? "").trim()) throw new Error(`target ${field} is required`);
     }
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(target.modelId))) {
+    if (!target.runtimeBinding && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(target.modelId))) {
       throw new Error("target modelId is unsafe");
     }
-    if (!new Set(["auto", "cpu", "directml", "cuda"]).has(String(target.provider))) {
+    if (!target.runtimeBinding && !new Set(["auto", "cpu", "directml", "cuda"]).has(String(target.provider))) {
       throw new Error("target provider must be auto, cpu, directml, or cuda");
     }
     if (!/^[a-f0-9]{64}$/i.test(target.engineSha256)) throw new Error("target engineSha256 is invalid");
@@ -429,20 +440,21 @@ export class Catalog {
     this.database.prepare(`
       INSERT INTO targets(
         id,label,model_id,model_root,model_fingerprint,engine_path,engine_sha256,
-        provider,hardware_driver_fingerprint,uci_options_json,created_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        provider,hardware_driver_fingerprint,uci_options_json,created_at,runtime_binding_json
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id,
       String(target.label || target.modelId),
       String(target.modelId),
-      path.resolve(target.modelRoot),
+      target.runtimeBinding?'':path.resolve(target.modelRoot),
       String(target.modelFingerprint),
       path.resolve(target.enginePath),
       target.engineSha256.toLowerCase(),
-      String(target.provider),
+      target.runtimeBinding ? '' : String(target.provider),
       String(target.hardwareDriverFingerprint || ""),
       serializeJson(target.uciOptions ?? {}, "target_uci_options"),
       nowIso(),
+      target.runtimeBinding?serializeJson(target.runtimeBinding,'target_runtime_binding'):null,
     );
     return this.target(id);
   }
@@ -464,6 +476,15 @@ export class Catalog {
   }
 
   findExactTarget(target) {
+    if (target.runtimeBinding) {
+      const bindingIdentity = binding => canonicalJson({
+        identity: binding.identity, runtime_binding: binding.runtime_binding, launch: binding.launch,
+      });
+      const expected = bindingIdentity(target.runtimeBinding);
+      return this.targets().find(candidate => candidate.runtimeBinding
+        && candidate.engineSha256 === target.engineSha256
+        && bindingIdentity(candidate.runtimeBinding) === expected) ?? null;
+    }
     const expectedOptions = JSON.stringify(target.uciOptions ?? {});
     return this.targets().find((candidate) =>
       candidate.modelId === target.modelId

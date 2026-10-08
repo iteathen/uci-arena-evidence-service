@@ -121,7 +121,7 @@ test("provider release proves independent target-scoped native reproducibility",
   );
   assert.deepEqual(
     definition.installer_integration.dependency_bindings.map((binding) => binding.name),
-    ["evidence_runtime_root", "engine", "model_root", "stockfish", "referee"],
+    ["evidence_runtime_root", "engine_component_manifest", "engine_launch_profile"],
   );
   assert.equal(definition.installer_integration.startup_control.entrypoint, "cli");
   assert.equal(
