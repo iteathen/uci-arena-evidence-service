@@ -18,6 +18,8 @@ import {
 import { targetIdentity } from "./identity.mjs";
 import { validateRuntimeContract } from "./runtime_contract.mjs";
 import { timingProfileCanPublish } from "./time_profile_policy.mjs";
+import { runtimeV2Command, validateRuntimeV2Records } from './runtime_v2_adapter.mjs';
+import { validateRuntimeBinding } from './runtime_v2_binding.mjs';
 
 const OUTPUT_SCHEMAS = Object.freeze({
   timing_profile: new Set(["uci_time_profile_attempt_v3", "uci_time_profile_v3"]),
@@ -130,6 +132,7 @@ function topologyBoolean(target, optionName, fallback) {
 
 export function adapterCommand(job, target, config, attemptDirectory) {
   if (!ADAPTERS.has(job.adapter)) throw new Error(`adapter ${job.adapter} is not allow-listed`);
+  if(target.runtimeBinding) return runtimeV2Command(job,target,validateRuntimeBinding(target.runtimeBinding.runtime_binding),attemptDirectory);
   const runtime = validateRuntimeContract(config.runtimeRoot);
   const value = job.config ?? {};
   const jobWorkspace = path.dirname(attemptDirectory);
@@ -742,6 +745,11 @@ function validateAdapterRecords(job, records, target) {
 }
 
 function authorityFor(job, record, records, resource) {
+  if(record.schema === 'uci_arena_evidence_result_v2') return {
+    diagnostic:true,timing:false,strength:false,profile_publication:false,
+    reasons:['runtime_v2_measurements_are_diagnostic_only',...(record.qualification?.reasons??[]),
+      ...(resource?.performance_authority===true&&resource?.interval_status==='finalized'?[]:resource?.problems??['resource_interval_not_authoritative'])],
+  };
   const clean = resource?.performance_authority === true
     && resource?.interval_status === "finalized";
   const reasons = [];
@@ -830,6 +838,7 @@ function axesFor(job, record) {
 }
 
 function metricsFor(record) {
+  if(record.schema === 'uci_arena_evidence_result_v2') return {games:record.games,samples:record.samples,engine_identities:record.engine_identities,runtime_identity:record.runtime_identity,qualification:record.qualification};
   if (record.schema === "uci_arena_paired_sprt_v2") {
     const games = (record.sprt?.pair_records ?? []).flatMap((pair) => pair.games ?? []);
     const candidateMoves = games.flatMap((game) => (
@@ -907,9 +916,15 @@ function outcomeFor(record) {
 }
 
 export function harvestAdapter(job, target, command, config, catalog, resource) {
+  if(command.runtimeMajor===2) {
+    const current=validateRuntimeBinding(target.runtimeBinding.runtime_binding);
+    if(current.major!==2||canonicalJson(current.identity)!==canonicalJson(command.runtimeRequest.runtime_identity))throw new Error('v2 runtime inventory identity drifted during execution');
+  }
   const entries = readOutputs(command.outputs);
   const records = entries.map((entry) => entry.record);
-  const producerFailures = validateAdapterRecords(job, records, target);
+  const producerFailures = command.runtimeMajor === 2
+    ? validateRuntimeV2Records(job,target,command,records)
+    : validateAdapterRecords(job, records, target);
   const envelopes = [];
   for (const { record, raw } of entries) {
     const sourceSchema = String(record?.schema ?? "");

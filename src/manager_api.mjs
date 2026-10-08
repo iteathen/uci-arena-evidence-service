@@ -3,7 +3,8 @@ import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { listQualifiedProfiles } from "./profiles.mjs";
-import { enqueueFirstCampaign } from "./campaign.mjs";
+import { enqueueFirstCampaign, enqueueManagedUciMeasurements } from "./campaign.mjs";
+import { validateRuntimeBinding, admitRuntimeTarget, RuntimeCapabilityUnsupported } from './runtime_v2_binding.mjs';
 import { sha256File } from "./identity.mjs";
 import { recoverStartup } from "./platform_startup.mjs";
 
@@ -218,8 +219,15 @@ export async function startupRecoverApi(config, recoverImpl = recoverStartup) {
   });
 }
 
-function targetSummary(target) {
+function targetSummary(target, includeSchemas=true) {
   if (!UUID_V4.test(target.id ?? "")) throw new Error("Evidence target id is malformed");
+  if(target.runtimeBinding) {
+    const projection=target.runtimeBinding.projection;
+    return {id:target.id,label:target.label,target_schema:'uci_arena_evidence_target_v2',engine_sha256:target.engineSha256,
+      component_id:projection.component_id,component_version:projection.component_version,runtime_identity_sha256:projection.runtime_identity_sha256,
+      capabilities:projection.capabilities,campaigns:projection.campaigns.map(campaign=>includeSchemas?campaign:{name:campaign.name,workloads:campaign.workloads}),
+      identity_scope:'registered_snapshot',created_at:target.createdAt};
+  }
   return {
     id: target.id,
     label: String(target.label ?? "").slice(0, 256),
@@ -263,7 +271,18 @@ function exactPath(value, kind) {
   return resolved;
 }
 
-export function registerTargetApi(catalog, input) {
+export function registerTargetApi(catalog, input, config) {
+  const v2 = input.schema === 'uci_arena_evidence_target_v2';
+  if (input.schema !== undefined && !v2 && input.schema !== 'uci_arena_evidence_target_v1') {
+    throw new Error('Evidence target schema is incompatible');
+  }
+  if(v2) {
+    if(Buffer.byteLength(JSON.stringify(input))>8192)throw new Error('target JSON exceeds 8192-byte CLI bound');
+    let target;
+    try{target=admitRuntimeTarget(input);}catch(error){if(error instanceof RuntimeCapabilityUnsupported)return envelope('target_register',{schema:'uci_arena_evidence_target_register_v1',status:'unsupported',code:error.code,reason:error.message,created:false});throw error;}
+    const existing=catalog.findExactTarget(target);const registered=existing??catalog.addTarget(target);
+    return envelope('target_register',{schema:'uci_arena_evidence_target_register_v1',status:'supported',created:!existing,target:targetSummary(registered)});
+  }
   const modelId = String(input.modelId ?? "");
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(modelId)) {
     throw new Error("Evidence target model id is invalid");
@@ -347,20 +366,25 @@ export function orchestrationStatusApi(catalog) {
     },
     targets_truncated: targets.length > ORCHESTRATION_TARGET_LIMIT,
     jobs_truncated: jobs.length > ORCHESTRATION_JOB_LIMIT,
-    targets: targets.slice(0, ORCHESTRATION_TARGET_LIMIT).map(targetSummary),
+    targets: targets.slice(0, ORCHESTRATION_TARGET_LIMIT).map(target=>targetSummary(target,false)),
     jobs: jobs.slice(0, ORCHESTRATION_JOB_LIMIT).map(jobSummary),
   });
 }
 
-export function enqueueCampaignApi(catalog, targetId = null) {
+export function enqueueCampaignApi(catalog, targetId = null, options = {}) {
+  if(Buffer.byteLength(JSON.stringify(options.configuration??{}))>8192)throw new Error('campaign parameters exceed 8192-byte CLI bound');
   if (targetId !== null) {
     if (!UUID_V4.test(targetId)) throw new Error("Evidence target id is malformed");
     if (!catalog.target(targetId)) throw new Error(`unknown target ${targetId}`);
   }
-  const jobs = enqueueFirstCampaign(catalog, { targetId });
+  const campaign=options.campaign??'time_control_curve_v1';
+  const selected=targetId?catalog.target(targetId):null;
+  const jobs = selected?.runtimeBinding
+    ? enqueueManagedUciMeasurements(catalog,{targetId,target:selected,campaign,configuration:options.configuration??{}})
+    : campaign==='time_control_curve_v1'?enqueueFirstCampaign(catalog, { targetId }):(()=>{throw new Error('Evidence campaign is incompatible');})();
   return envelope("campaign_enqueue", {
     schema: "uci_arena_evidence_campaign_enqueue_v1",
-    campaign: "time_control_curve_v1",
+    campaign,
     target_id: targetId,
     jobs: jobs.map(jobSummary),
   });

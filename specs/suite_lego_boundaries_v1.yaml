@@ -42,7 +42,7 @@ repository_role:
     - suite_installation_or_release_composition
 
 mandatory_boundaries:
-  - "Evidence Service invokes allowlisted runtime tools published by the engine through the exact uci_arena_evidence.runtime contract; it never imports or reconstructs engine internals."
+  - "Evidence Service invokes allowlisted runtime tools through the exact legacy uci_arena_evidence.runtime contract or explicitly admitted engine-owned JS v2 profile in evidence_runtime_v2.md; it never imports or reconstructs engine internals."
   - "Engine-owned runtime tools retain chess, UCI, referee, timing-qualification, and statistical truth; Evidence Service owns durable scheduling, admission, normalization, cataloging, and publication."
   - "Evidence authority requires exact component, target, artifact, and resource-interval identity and fails closed on drift or contamination."
   - "Manager consumes typed status, configuration, job controls, and output projections only through the published service contract and never opens provider-private catalogs or raw storage."

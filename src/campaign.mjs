@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { validateRuntimeBinding } from './runtime_v2_binding.mjs';
 
 const CORE_CONTROLS = ["30+0", "60+2", "180+0", "180+3"];
 const STAGED_CONTROLS = ["40/120+5"];
@@ -23,9 +24,10 @@ function enqueue(catalog, {
   shardId,
   priority,
   config,
+  campaign = 'time_control_curve_v1',
 }) {
   const jobIdentity = fingerprint({
-    campaign: "time_control_curve_v1",
+    campaign,
     adapter,
     targetId: targetId ?? "active",
     shardId,
@@ -34,7 +36,7 @@ function enqueue(catalog, {
   const existing = catalog.jobByFingerprint(jobIdentity);
   if (existing) return existing;
   const datasetId = catalog.createDataset({
-    campaign: "time_control_curve_v1",
+    campaign,
     targetIdentity: targetId ? { target_id: targetId } : { source: "active_model_pointer" },
   });
   return catalog.enqueueJob({
@@ -43,9 +45,18 @@ function enqueue(catalog, {
     shardId,
     datasetId,
     priority,
-    config: { campaign: "time_control_curve_v1", ...config },
+    config: { campaign, ...config },
     fingerprint: jobIdentity,
   });
+}
+
+export function enqueueManagedUciMeasurements(catalog,{targetId,target,campaign,configuration={}}={}) {
+  const runtime=validateRuntimeBinding(target?.runtimeBinding?.runtime_binding);
+  const parameters=runtime.validateCampaign(campaign,configuration);
+  return runtime.campaigns.get(campaign).workloads.map((adapter,index)=>enqueue(catalog,{
+    adapter,targetId,shardId:`managed-${adapter}`,priority:100-index,
+    campaign,config:{parameters},
+  }));
 }
 
 export function enqueueFirstCampaign(catalog, { targetId = null } = {}) {

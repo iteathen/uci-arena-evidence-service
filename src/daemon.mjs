@@ -344,7 +344,7 @@ async function executeJob({
       }
     }
     child = spawnImpl(command.executable, command.args, {
-      cwd: config.runtimeRoot,
+      cwd: command.workingDirectory ?? config.runtimeRoot,
       env: lease.environment(command.environment),
       stdio: ["pipe", stdout, stderr],
       windowsHide: true,

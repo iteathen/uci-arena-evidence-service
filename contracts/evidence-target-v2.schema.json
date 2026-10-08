@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "urn:uci-arena:evidence-target:v2",
+  "title": "Registered engine evidence target descriptor",
+  "$comment": "Complete inline JSON is limited to 8192 UTF-8 bytes. Manager resolves paths and launch facts server-side from one registered engine and its fresh verified receipt.",
+  "type": "object", "additionalProperties": false, "required": ["schema", "label", "launch", "runtime_binding"],
+  "properties": {
+    "schema": {"const": "uci_arena_evidence_target_v2"}, "label": {"type": "string", "minLength": 1, "maxLength": 256},
+    "launch": {"type": "object", "additionalProperties": false, "required": ["executable", "arguments", "working_directory", "uci_options"], "properties": {
+      "executable": {"type": "string", "description": "Absolute actual executable, inventoried by the selected component."},
+      "arguments": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 4096}},
+      "working_directory": {"type": "string"}, "uci_options": {"type": "object", "maxProperties": 128, "additionalProperties": {"type": ["string", "integer", "boolean"]}}
+    }},
+    "runtime_binding": {"oneOf": [{"type": "null"}, {"type": "object", "additionalProperties": false, "required": ["schema", "component", "entrypoint"], "properties": {
+      "schema": {"const": "uci_arena_evidence_runtime_binding_v2"}, "entrypoint": {"const": "evidence_runtime_contract"},
+      "component": {"type": "object", "additionalProperties": false, "required": ["id", "version", "root", "manifest", "manifest_sha256"], "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 128}, "version": {"type": "string"}, "root": {"type": "string"}, "manifest": {"type": "string"}, "manifest_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }}
+    }}]}
+  }
+}

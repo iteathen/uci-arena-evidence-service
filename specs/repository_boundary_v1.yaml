@@ -30,6 +30,7 @@ contracts:
   component_id: uci_arena_evidence.service
   installed_cli: services/evidence-service/src/cli.mjs
   runtime_component: uci_arena_evidence.runtime
+  additional_runtime_profile: specs/evidence_runtime_v2.md
   manager_integration_api:
     schema: uci_arena_manager_service_api_v1
     version: '1.0'

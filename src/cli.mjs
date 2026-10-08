@@ -151,11 +151,16 @@ async function main(argv = process.argv.slice(2)) {
       output(orchestrationStatusApi(catalog));
     } else if (command === "api" && subcommand === "target"
         && positional[2] === "register") {
+      if(flags['target-json']) {
+        if(Buffer.byteLength(flags['target-json'])>8192)throw new Error('target JSON exceeds 8192-byte CLI bound');
+        output(registerTargetApi(catalog,JSON.parse(flags['target-json']),config));
+      } else {
       const required = ["model-id", "model-root", "model-fingerprint", "engine", "provider"];
       for (const name of required) {
         if (!flags[name]) throw new Error(`api target register requires --${name}`);
       }
       output(registerTargetApi(catalog, {
+        ...(flags['target-schema']?{schema:flags['target-schema']}:{}),
         label: flags.label || flags["model-id"],
         modelId: flags["model-id"],
         modelRoot: flags["model-root"],
@@ -164,10 +169,15 @@ async function main(argv = process.argv.slice(2)) {
         provider: flags.provider,
         hardwareDriverFingerprint: flags["provider-fingerprint"] || "",
         uciOptions: flags["uci-options-json"] ? JSON.parse(flags["uci-options-json"]) : {},
-      }));
+      }, config));
+      }
     } else if (command === "api" && subcommand === "campaign"
         && positional[2] === "enqueue") {
-      output(enqueueCampaignApi(catalog, flags.target || null));
+      if(Buffer.byteLength(flags['configuration-json']??'')>8192)throw new Error('campaign parameters exceed 8192-byte CLI bound');
+      output(enqueueCampaignApi(catalog, flags.target || null, {
+        ...(flags.campaign?{campaign:flags.campaign}:{}),
+        ...(flags['configuration-json']?{configuration:JSON.parse(flags['configuration-json'])}:{}),
+      }));
     } else if (command === "api" && subcommand === "job"
         && positional[2] === "control") {
       if (!flags.id || !flags.action) {
