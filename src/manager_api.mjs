@@ -219,13 +219,13 @@ export async function startupRecoverApi(config, recoverImpl = recoverStartup) {
   });
 }
 
-function targetSummary(target, includeSchemas=true) {
+function targetSummary(target) {
   if (!UUID_V4.test(target.id ?? "")) throw new Error("Evidence target id is malformed");
   if(target.runtimeBinding) {
     const projection=target.runtimeBinding.projection;
     return {id:target.id,label:target.label,target_schema:'uci_arena_evidence_target_v2',engine_sha256:target.engineSha256,
       component_id:projection.component_id,component_version:projection.component_version,runtime_identity_sha256:projection.runtime_identity_sha256,
-      capabilities:projection.capabilities,campaigns:projection.campaigns.map(campaign=>includeSchemas?campaign:{name:campaign.name,workloads:campaign.workloads}),
+      capabilities:projection.capabilities,campaigns:projection.campaigns,
       identity_scope:'registered_snapshot',created_at:target.createdAt};
   }
   return {
@@ -366,7 +366,7 @@ export function orchestrationStatusApi(catalog) {
     },
     targets_truncated: targets.length > ORCHESTRATION_TARGET_LIMIT,
     jobs_truncated: jobs.length > ORCHESTRATION_JOB_LIMIT,
-    targets: targets.slice(0, ORCHESTRATION_TARGET_LIMIT).map(target=>targetSummary(target,false)),
+    targets: targets.slice(0, ORCHESTRATION_TARGET_LIMIT).map(targetSummary),
     jobs: jobs.slice(0, ORCHESTRATION_JOB_LIMIT).map(jobSummary),
   });
 }

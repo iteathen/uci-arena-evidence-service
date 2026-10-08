@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, openSync, readSync, closeSync } from 'node:fs';
+import { lstatSync, readFileSync, openSync, readSync, closeSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 
 export class RuntimeCapabilityUnsupported extends Error {
@@ -14,6 +14,18 @@ function exact(value,keys,label) {
 function fileHash(file) {
   const fd=openSync(file,'r');const b=Buffer.allocUnsafe(65536);const h=createHash('sha256');
   try{let n;while((n=readSync(fd,b,0,b.length,null))>0)h.update(b.subarray(0,n));return h.digest('hex');}finally{closeSync(fd);}
+}
+function checkedPathIdentity(filename, directory=false) {
+  const absolute=path.resolve(filename);
+  let cursor=path.parse(absolute).root;
+  for(const part of path.relative(cursor,absolute).split(path.sep).filter(Boolean)) {
+    cursor=path.join(cursor,part);
+    if(lstatSync(cursor).isSymbolicLink())throw new Error('registered path symlink/reparse point is forbidden');
+  }
+  const status=lstatSync(absolute);
+  if(directory?!status.isDirectory():!status.isFile())throw new Error('registered path has wrong kind');
+  const physical=realpathSync.native(absolute);
+  return process.platform==='win32'?physical.toLowerCase():physical;
 }
 function regular(root,relative) {
   if(typeof relative!=='string'||!relative||relative.includes('\\')||/[:\u0000-\u001f]/u.test(relative)||path.isAbsolute(relative)
@@ -128,21 +140,24 @@ export function admitRuntimeTarget(input) {
   const runtime=validateRuntimeBinding(input.runtime_binding);exact(input.launch,['executable','arguments','working_directory','uci_options'],'registered UCI launch');
   const launch=input.launch;
   const cwd=typeof launch.working_directory==='string'?path.resolve(launch.working_directory):null;
-  const cwdContained=cwd&&(cwd===runtime.root||cwd.startsWith(`${runtime.root}${path.sep}`));
+  const rootIdentity=checkedPathIdentity(runtime.root,true);
+  const cwdIdentity=cwd&&checkedPathIdentity(cwd,true);
+  const executableIdentity=typeof launch.executable==='string'&&path.isAbsolute(launch.executable)
+    ?checkedPathIdentity(launch.executable):null;
+  const cwdContained=cwdIdentity&&(cwdIdentity===rootIdentity||cwdIdentity.startsWith(`${rootIdentity}${path.sep}`));
   if(typeof input.label!=='string'||!input.label.length||input.label.length>256||/[\u0000-\u001f]/u.test(input.label)
-    ||typeof launch.executable!=='string'||!path.isAbsolute(launch.executable)||![...runtime.files.values()].includes(path.resolve(launch.executable))
+    ||typeof launch.executable!=='string'||!path.isAbsolute(launch.executable)
+    ||![...runtime.files.values()].some(file=>checkedPathIdentity(file)===executableIdentity)
     ||typeof launch.working_directory!=='string'||!path.isAbsolute(launch.working_directory)||!cwdContained
     ||!Array.isArray(launch.arguments)||launch.arguments.length>64||launch.arguments.some(a=>typeof a!=='string'||a.length>4096||/[\u0000-\u001f]/u.test(a))
     ||!plain(launch.uci_options)||Object.keys(launch.uci_options).length>128)throw new Error('registered launch is outside component inventory/bounds');
   for(const [name,value]of Object.entries(launch.uci_options))if(!/^[A-Za-z][A-Za-z0-9 _-]{0,127}$/u.test(name)||!['string','boolean','number'].includes(typeof value)||String(value).length>512||/[\u0000-\u001f]/u.test(String(value))||(typeof value==='number'&&!Number.isSafeInteger(value)))throw new Error('registered UCI option is invalid');
-  let cursor=runtime.root;
-  if(cwd!==runtime.root)for(const part of path.relative(runtime.root,cwd).split(path.sep)){cursor=path.join(cursor,part);const status=lstatSync(cursor);if(status.isSymbolicLink()||!status.isDirectory())throw new Error('registered working directory is not a contained regular directory');}
   const normalized={...structuredClone(input),launch:{...structuredClone(launch),executable:path.resolve(launch.executable),working_directory:path.resolve(launch.working_directory)}};
   const projection={component_id:runtime.componentId,component_version:runtime.componentVersion,runtime_identity_sha256:runtime.identity.runtime_identity_sha256,
     capabilities:Object.entries(runtime.capabilities).map(([name,capability])=>({name,status:capability.status,...(capability.reason?{reason:capability.reason}:{})})),
     campaigns:[...runtime.campaigns.values()].map(campaign=>({name:campaign.name,workloads:campaign.workloads,parameters_schema:campaign.schema}))};
   if(Buffer.byteLength(JSON.stringify(projection))>65536)throw new Error('registered runtime projection exceeds public response bound');
   return {label:input.label,enginePath:normalized.launch.executable,engineSha256:fileHash(normalized.launch.executable),uciOptions:normalized.launch.uci_options,
-    modelId:'',modelRoot:'',modelFingerprint:'',provider:runtime.resourceRequirements.gpu?'auto':'cpu',hardwareDriverFingerprint:'',
+    modelId:'',modelRoot:'',modelFingerprint:'',provider:'',hardwareDriverFingerprint:'',
     runtimeBinding:{...normalized,identity:runtime.identity,projection}};
 }

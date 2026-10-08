@@ -37,6 +37,7 @@ test('unrelated CPU and Vector identities use same generic admission without pro
     const runtime=validateRuntimeBinding(f.binding);assert.equal(runtime.componentId,f.binding.component.id);
     const target=admitRuntimeTarget(f.input);assert.equal(target.enginePath,f.input.launch.executable);assert.notEqual(target.enginePath,runtime.contractPath);
     assert.deepEqual(target.runtimeBinding.launch,f.input.launch);assert.deepEqual(runtime.engineIdentity,JSON.parse(readFileSync(path.join(f.root,'contracts/identity.json'))));
+    assert.equal(target.provider, '', 'GPU resource need does not establish a provider identity');
   }
 });
 test('unsupported parameter schema is rejected even when hidden behind an omitted optional field',t=>{
@@ -85,7 +86,34 @@ test('target-specific binding survives catalog reopen and campaigns obey selecte
   assert.throws(()=>enqueueCampaignApi(catalog,id,{campaign:'wrong',configuration:{}}),/unsupported/);
   assert.equal(resolveJobTarget({targetId:id},catalog,config).target.id,id);
   assert.equal(orchestrationStatusApi(catalog).payload.targets[0].target_schema,'uci_arena_evidence_target_v2');
+  assert.deepEqual(orchestrationStatusApi(catalog).payload.targets[0].campaigns[0].parameters_schema,
+    JSON.parse(readFileSync(path.join(f.root, 'contracts/parameters.json'))));
 });
+
+test('target registration identity ignores labels and object insertion order', async t => {
+  const f = providerFixture(t);
+  const config = await loadConfig({ workspace: path.join(f.root, 'state') });
+  const catalog = new Catalog(config);
+  f.cleanups.push(() => catalog.close());
+  f.input.launch.uci_options = { Hash: 16, Threads: 1 };
+  const first = registerTargetApi(catalog, f.input);
+  const repeated = structuredClone(f.input);
+  repeated.label = 'Renamed display';
+  repeated.launch.uci_options = { Threads: 1, Hash: 16 };
+  const second = registerTargetApi(catalog, repeated);
+  assert.equal(second.payload.created, false);
+  assert.equal(second.payload.target.id, first.payload.target.id);
+  assert.equal(catalog.targets().length, 1);
+});
+
+test('Windows path aliases preserve the exact registered launch without rejecting its inventory',
+  { skip: process.platform !== 'win32' }, t => {
+    const f = providerFixture(t);
+    f.input.launch.executable = f.input.launch.executable.toUpperCase();
+    f.input.launch.working_directory = f.input.launch.working_directory.toUpperCase();
+    const target = admitRuntimeTarget(f.input);
+    assert.deepEqual(target.runtimeBinding.launch, f.input.launch);
+  });
 test('unsupported engine capability stays a typed optional service result with no target mutation',()=>{
   let mutated=false;const result=registerTargetApi({addTarget(){mutated=true;}},{schema:'uci_arena_evidence_target_v2',label:'ordinary UCI',launch:{},runtime_binding:null});
   assert.equal(result.payload.status,'unsupported');assert.equal(result.payload.code,'EVIDENCE_RUNTIME_UNSUPPORTED');assert.equal(mutated,false);

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { canonicalJson } from '@uci-arena/time-profile-contract';
 import {
   processIdentityFromJson,
   processInstanceIsCurrent,
@@ -413,7 +414,7 @@ export class Catalog {
   }
 
   addTarget(target) {
-    const required = target.runtimeBinding?['enginePath','engineSha256','provider']:[
+    const required = target.runtimeBinding?['enginePath','engineSha256']:[
       "modelId",
       "modelRoot",
       "modelFingerprint",
@@ -427,7 +428,7 @@ export class Catalog {
     if (!target.runtimeBinding && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(String(target.modelId))) {
       throw new Error("target modelId is unsafe");
     }
-    if (!new Set(["auto", "cpu", "directml", "cuda"]).has(String(target.provider))) {
+    if (!target.runtimeBinding && !new Set(["auto", "cpu", "directml", "cuda"]).has(String(target.provider))) {
       throw new Error("target provider must be auto, cpu, directml, or cuda");
     }
     if (!/^[a-f0-9]{64}$/i.test(target.engineSha256)) throw new Error("target engineSha256 is invalid");
@@ -449,7 +450,7 @@ export class Catalog {
       String(target.modelFingerprint),
       path.resolve(target.enginePath),
       target.engineSha256.toLowerCase(),
-      String(target.provider),
+      target.runtimeBinding ? '' : String(target.provider),
       String(target.hardwareDriverFingerprint || ""),
       serializeJson(target.uciOptions ?? {}, "target_uci_options"),
       nowIso(),
@@ -475,8 +476,15 @@ export class Catalog {
   }
 
   findExactTarget(target) {
-    if(target.runtimeBinding)return this.targets().find(candidate=>candidate.runtimeBinding&&candidate.engineSha256===target.engineSha256
-      &&JSON.stringify(candidate.runtimeBinding)===JSON.stringify(target.runtimeBinding))??null;
+    if (target.runtimeBinding) {
+      const bindingIdentity = binding => canonicalJson({
+        identity: binding.identity, runtime_binding: binding.runtime_binding, launch: binding.launch,
+      });
+      const expected = bindingIdentity(target.runtimeBinding);
+      return this.targets().find(candidate => candidate.runtimeBinding
+        && candidate.engineSha256 === target.engineSha256
+        && bindingIdentity(candidate.runtimeBinding) === expected) ?? null;
+    }
     const expectedOptions = JSON.stringify(target.uciOptions ?? {});
     return this.targets().find((candidate) =>
       candidate.modelId === target.modelId
