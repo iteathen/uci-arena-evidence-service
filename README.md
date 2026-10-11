@@ -95,6 +95,19 @@ Recognized legacy owner records require a positive native PID-absence query;
 PID reuse can be admitted only when the original exact identity was retained.
 No identity or process-exit evidence is inferred from stale timestamps.
 
+If an earlier relocation retained absolute artifact/log locators beneath a
+retired workspace, explicitly declare that locator namespace with the repeatable
+`--historical-locator-root ABSOLUTE_PATH` option (at most eight). Each declared
+root must be absent at its exact leaf beneath existing ordinary parents; present,
+inaccessible or reparse paths defer. No historical root is inferred and no
+unavailable historical daemon record is treated as verified. Its artifact/log
+relative names resolve through the current retained source workspace for original
+file verification, then the copied destination. Artifact catalog hashes/lengths,
+original/copy log bytes, unambiguous projections and the existing canonical
+source/destination startup and daemon guards remain mandatory. Other catalog
+columns and opaque historical provenance remain unchanged. This is an explicit
+repair of retired locator namespaces, not support for additional live workspaces.
+
 The daemon runs one engine shard at a time. It waits for sustained host and GPU
 idle evidence, available memory and disk, AC power, no Restaurant owner, and no
 foreground Arena request. It shares one fair heavy-background lease with Book

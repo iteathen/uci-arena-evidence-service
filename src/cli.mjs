@@ -111,7 +111,7 @@ function usage() {
   arena-evidence api job control --id UUID --action cancel|retry
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
   arena-evidence startup install|status|recover|uninstall
-  arena-evidence workspace adopt-locators --source-workspace PATH --workspace PATH [--maximum-milliseconds N]
+  arena-evidence workspace adopt-locators --source-workspace PATH --workspace PATH [--historical-locator-root PATH] [--maximum-milliseconds N]
 
 Global options: --workspace PATH --config FILE`;
 }
@@ -123,9 +123,13 @@ async function main(argv = process.argv.slice(2)) {
     try {
       const args = [...argv];
       if (args.shift() !== 'workspace' || args.shift() !== 'adopt-locators') throw new Error('invalid');
-      const options = {};
+      const options = {}, historicalLocatorRoots = [];
       while (args.length) {
         const flag = args.shift();
+        if (flag === '--historical-locator-root') {
+          if (!args.length || historicalLocatorRoots.length >= 8 || !path.isAbsolute(args[0])) throw new Error('invalid');
+          historicalLocatorRoots.push(args.shift()); continue;
+        }
         if (!['--source-workspace','--workspace','--config','--maximum-milliseconds'].includes(flag)
             || Object.hasOwn(options,flag) || !args.length) throw new Error('invalid');
         options[flag] = args.shift();
@@ -136,7 +140,7 @@ async function main(argv = process.argv.slice(2)) {
       const sourceConfig = await loadConfig({workspace:options['--source-workspace']});
       const destinationConfig = await loadConfig({workspace:options['--workspace'],configFile:options['--config']});
       await configureProcessIdentityProbe(new NativeResourceHelper(destinationConfig));
-      result = await adoptOfflineLocators({sourceConfig,destinationConfig,maximumMilliseconds});
+      result = await adoptOfflineLocators({sourceConfig,destinationConfig,historicalLocatorRoots,maximumMilliseconds});
     } catch { result = invalid(); }
     output(result); return result.status === 'adopted' ? 0 : result.status === 'deferred' ? 2 : 1;
   }
