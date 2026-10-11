@@ -10,6 +10,7 @@ import { enqueueFirstCampaign, jobFingerprint } from "./campaign.mjs";
 import { loadConfig } from "./config.mjs";
 import { NativeResourceHelper } from "@uci-arena/background-service-runtime/native-resource-helper";
 import { configureProcessIdentityProbe } from "./process_identity.mjs";
+import { adoptOfflineLocators, LOCATOR_ADOPTION_SCHEMA } from './offline_locator_adoption.mjs';
 import { runDaemon } from "./daemon.mjs";
 import { sha256File } from "./identity.mjs";
 import {
@@ -110,11 +111,35 @@ function usage() {
   arena-evidence api job control --id UUID --action cancel|retry
   arena-evidence prune --before ISO_TIMESTAMP [--confirm PRUNE]
   arena-evidence startup install|status|recover|uninstall
+  arena-evidence workspace adopt-locators --source-workspace PATH --workspace PATH [--maximum-milliseconds N]
 
 Global options: --workspace PATH --config FILE`;
 }
 
 async function main(argv = process.argv.slice(2)) {
+  if (argv[0] === 'workspace') {
+    const invalid = () => ({ schema: LOCATOR_ADOPTION_SCHEMA, status: 'deferred', completion: 'not_attempted', reason: 'invalid_request' });
+    let result;
+    try {
+      const args = [...argv];
+      if (args.shift() !== 'workspace' || args.shift() !== 'adopt-locators') throw new Error('invalid');
+      const options = {};
+      while (args.length) {
+        const flag = args.shift();
+        if (!['--source-workspace','--workspace','--config','--maximum-milliseconds'].includes(flag)
+            || Object.hasOwn(options,flag) || !args.length) throw new Error('invalid');
+        options[flag] = args.shift();
+      }
+      if (!path.isAbsolute(options['--source-workspace'] ?? '') || !path.isAbsolute(options['--workspace'] ?? '')) throw new Error('invalid');
+      const maximumMilliseconds = options['--maximum-milliseconds'] === undefined ? 60000 : Number(options['--maximum-milliseconds']);
+      if (!Number.isSafeInteger(maximumMilliseconds) || maximumMilliseconds < 1 || maximumMilliseconds > 60000) throw new Error('invalid');
+      const sourceConfig = await loadConfig({workspace:options['--source-workspace']});
+      const destinationConfig = await loadConfig({workspace:options['--workspace'],configFile:options['--config']});
+      await configureProcessIdentityProbe(new NativeResourceHelper(destinationConfig));
+      result = await adoptOfflineLocators({sourceConfig,destinationConfig,maximumMilliseconds});
+    } catch { result = invalid(); }
+    output(result); return result.status === 'adopted' ? 0 : result.status === 'deferred' ? 2 : 1;
+  }
   const { remaining, options } = takeGlobalOptions(argv);
   const { positional, flags } = parseFlags(remaining);
   if (positional.length === 0 || positional[0] === "help" || flags.help) {

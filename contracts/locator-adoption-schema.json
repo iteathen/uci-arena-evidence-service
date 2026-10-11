@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "uci_arena_evidence_locator_adoption_v1",
+  "oneOf": [
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "status", "completion", "artifacts", "logLocators", "projectionSha256"],
+      "properties": {
+        "schema": {"const": "uci_arena_evidence_locator_adoption_v1"},
+        "status": {"const": "adopted"}, "completion": {"const": "confirmed"},
+        "artifacts": {"type": "integer", "minimum": 0, "maximum": 1000000},
+        "logLocators": {"type": "integer", "minimum": 0, "maximum": 2000000},
+        "projectionSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+      }
+    },
+    {
+      "type": "object", "additionalProperties": false,
+      "required": ["schema", "status", "completion", "reason"],
+      "properties": {
+        "schema": {"const": "uci_arena_evidence_locator_adoption_v1"},
+        "status": {"enum": ["deferred", "failed"]},
+        "completion": {"enum": ["not_attempted", "unconfirmed", "confirmed"]},
+        "reason": {"enum": ["invalid_request", "file_unavailable", "catalog_unavailable", "startup_not_absent", "daemon_unverifiable", "destination_not_paused", "locator_mismatch", "artifact_mismatch", "log_mismatch", "source_changed", "resource_limit", "cancelled_or_timeout", "cleanup_failed"]}
+      }
+    }
+  ]
+}

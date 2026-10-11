@@ -72,6 +72,24 @@ commands and never opens the service catalog directly.
 
 ## Background resource behavior
 
+For a workspace copied after uninstall, pause the source first, uninstall its
+startup registration, and retain the source originals while copying the closed
+catalog plus `artifacts` and `attempts` data. Run this before installing fresh
+startup registration:
+
+```powershell
+node src/cli.mjs workspace adopt-locators --source-workspace C:/old-evidence --workspace E:/new-evidence
+```
+
+Both startup registrations must be absent and the copied catalog must already
+be paused. The command verifies daemon absence, original and copied file
+identities, artifact digests and log bytes before updating only the three
+artifact/log locator columns. Historical provenance remains unchanged. It needs
+no engine or selected evidence runtime; Windows needs the packaged identity
+helper. Exit codes are 0 for confirmed adoption, 2 for deferred verification,
+and 1 for an uncertain effect or cleanup failure. The optional
+`--maximum-milliseconds` accepts 1..60000 and bounds cooperative work.
+
 The daemon runs one engine shard at a time. It waits for sustained host and GPU
 idle evidence, available memory and disk, AC power, no Restaurant owner, and no
 foreground Arena request. It shares one fair heavy-background lease with Book
