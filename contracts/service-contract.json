@@ -1,12 +1,13 @@
 {
   "schema": "uci_arena_standalone_service_contract_v1",
   "component_id": "uci_arena_evidence.service",
-  "component_version": "0.3.15",
+  "component_version": "0.3.16",
   "cli_entrypoint": "services/evidence-service/src/cli.mjs",
   "configuration_schema": "uci_arena_evidence_service_config_v1",
   "status_schema": "uci_arena_evidence_status_v1",
   "schema_documents": {
-    "status": "contracts/status-schema.json"
+    "status": "contracts/status-schema.json",
+    "locator_adoption": "contracts/locator-adoption-schema.json"
   },
   "capabilities": [
     "status",
@@ -18,7 +19,8 @@
     "profile_list",
     "startup_install",
     "startup_recover",
-    "startup_uninstall"
+    "startup_uninstall",
+    "offline_locator_adoption"
   ],
   "data_paths": ["workspace"],
   "startup": {
@@ -83,5 +85,21 @@
     "upgrade": "preserve_and_migrate",
     "repair": "preserve",
     "uninstall_default": "preserve"
+  },
+  "offline_locator_adoption": {
+    "schema": "uci_arena_evidence_locator_adoption_v1",
+    "entrypoint": "cli",
+    "arguments": ["workspace", "adopt-locators"],
+    "source_workspace_argument": "--source-workspace",
+    "destination_workspace_argument": "--workspace",
+    "maximum_milliseconds_argument": "--maximum-milliseconds",
+    "maximum_milliseconds": 60000,
+    "startup_requirement": "typed_verified_registration_absent_before_and_after_verification",
+    "startup_presence_schema": "uci_arena_evidence_startup_presence_v1",
+    "destination_requirement": "existing_schema_3_catalog_paused_before_adoption",
+    "legacy_owner_requirement": "recognized_legacy_pid_record_requires_positive_native_pid_absence;_pid_reuse_requires_retained_exact_identity",
+    "updated_columns": ["artifacts.path", "attempts.stdout_path", "attempts.stderr_path"],
+    "source_originals": "preserve",
+    "exit_codes": {"adopted": 0, "deferred": 2, "failed": 1}
   }
 }

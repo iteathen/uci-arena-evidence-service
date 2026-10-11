@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +22,34 @@ export const windowsTaskName = "UCI Arena Evidence Service";
 export const linuxUnitName = "uci-arena-evidence.service";
 const cliPath = fileURLToPath(new URL("./cli.mjs", import.meta.url));
 const daemonLockName = "daemon.lock";
+export const STARTUP_PRESENCE_SCHEMA = 'uci_arena_evidence_startup_presence_v1';
+
+// Offline mutation needs positive absence, independent of legacy CLI exit codes.
+export async function offlineStartupPresence(_config, { platform = process.platform, execute = execFileAsync,
+  unitPath = linuxUserUnitPath(), stat = lstatSync, timeoutMs = 10000 } = {}) {
+  const result = state => Object.freeze({ schema: STARTUP_PRESENCE_SCHEMA, state });
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10000) return result('unverifiable');
+  if (platform === 'linux') {
+    try { stat(unitPath); return result('present'); }
+    catch (error) { return result(error?.code === 'ENOENT' ? 'absent' : 'unverifiable'); }
+  }
+  if (platform !== 'win32') return result('unverifiable');
+  try {
+    const file = fileURLToPath(new URL('./offline_startup_presence.ps1',import.meta.url));
+    const info = lstatSync(file);
+    if (!info.isFile() || info.isSymbolicLink() || info.size > 16384) return result('unverifiable');
+    const script = readFileSync(file,'utf8');
+    const command = `& {\n${script}\n} -TaskName '${windowsTaskName.replaceAll("'","''")}'`;
+    const { stdout } = await execute('powershell.exe',['-NoLogo','-NoProfile','-NonInteractive','-WindowStyle','Hidden',
+      '-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],
+    {windowsHide:true,timeout:timeoutMs,maxBuffer:4096,encoding:'buffer'});
+    if (!Buffer.isBuffer(stdout) || stdout.length > 4096) return result('unverifiable');
+    const value = JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(stdout));
+    if (!value || Object.keys(value).length !== 2 || value.schema !== STARTUP_PRESENCE_SCHEMA
+        || !['absent','present','unverifiable'].includes(value.state)) return result('unverifiable');
+    return result(value.state);
+  } catch { return result('unverifiable'); }
+}
 
 function xmlEscape(value) {
   return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;")

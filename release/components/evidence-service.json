@@ -85,7 +85,7 @@
     {"component_id": "node_runtime.private", "required": true, "binding": "private_component_runtime"},
     {"component_id": "uci_arena.vector", "required": true, "binding": "selected_engine_evidence_contract"}
   ],
-  "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "profile_list", "startup_install", "startup_recover", "startup_uninstall"],
+  "capabilities": ["status", "start", "stop", "pause", "resume", "campaign", "profile_list", "startup_install", "startup_recover", "startup_uninstall", "offline_locator_adoption"],
   "startup": {"windows": "per_user_task_scheduler", "linux": "per_user_systemd"},
   "data_paths": ["workspace"],
   "dependency_lock_identities": {
