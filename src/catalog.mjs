@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { canonicalJson } from '@uci-arena/time-profile-contract';
+import {admitClockOptionBindings} from './runtime_clock_options.mjs';
 import {
   processIdentityFromJson,
   processInstanceIsCurrent,
@@ -105,7 +106,7 @@ function validateUciOptions(value) {
   const entries = Object.entries(value);
   if (entries.length > 128) throw new Error("UCI option count");
   for (const [name, option] of entries) {
-    if (name.length > 128 || !/^[A-Za-z][A-Za-z0-9 _-]*$/u.test(name)
+    if (!/^[A-Za-z0-9 _-]{1,128}$/u.test(name)
         || !UCI_OPTION_TYPES.has(typeof option)
         || (typeof option === "number" && !Number.isSafeInteger(option))
         || (typeof option === "string" && option.length > 512)) {
@@ -130,6 +131,7 @@ function parseJson(text, domain) {
       ||!Array.isArray(value.projection.capabilities)||!Array.isArray(value.projection.campaigns)||value.projection.campaigns.length>32
       ||value.projection.capabilities.some(cap=>!plainObject(cap)||typeof cap.name!=='string'||!['available','unsupported'].includes(cap.status))
       ||value.projection.campaigns.some(campaign=>!plainObject(campaign)||typeof campaign.name!=='string'||!Array.isArray(campaign.workloads)||!plainObject(campaign.parameters_schema))))throw new Error('runtime target binding shape');
+    if(domain==='target_runtime_binding'&&Object.hasOwn(value,'clock_option_bindings'))admitClockOptionBindings(value.clock_option_bindings,value.launch.uci_options);
     if (domain === "dataset_authority" || domain === "observation_authority") {
       validateAuthority(value);
     }
@@ -479,6 +481,7 @@ export class Catalog {
     if (target.runtimeBinding) {
       const bindingIdentity = binding => canonicalJson({
         identity: binding.identity, runtime_binding: binding.runtime_binding, launch: binding.launch,
+        ...(binding.clock_option_bindings?{clock_option_bindings:binding.clock_option_bindings}:{}),
       });
       const expected = bindingIdentity(target.runtimeBinding);
       return this.targets().find(candidate => candidate.runtimeBinding

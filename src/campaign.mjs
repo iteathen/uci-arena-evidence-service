@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { validateRuntimeBinding } from './runtime_v2_binding.mjs';
+import {admitRuntimeCampaignParameters} from './runtime_v2_adapter.mjs';
 
 const CORE_CONTROLS = ["30+0", "60+2", "180+0", "180+3"];
 const STAGED_CONTROLS = ["40/120+5"];
@@ -53,6 +54,7 @@ function enqueue(catalog, {
 export function enqueueManagedUciMeasurements(catalog,{targetId,target,campaign,configuration={}}={}) {
   const runtime=validateRuntimeBinding(target?.runtimeBinding?.runtime_binding);
   const parameters=runtime.validateCampaign(campaign,configuration);
+  admitRuntimeCampaignParameters(target,runtime,campaign,parameters);
   return runtime.campaigns.get(campaign).workloads.map((adapter,index)=>enqueue(catalog,{
     adapter,targetId,shardId:`managed-${adapter}`,priority:100-index,
     campaign,config:{parameters},

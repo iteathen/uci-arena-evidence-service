@@ -1,7 +1,8 @@
 # Engine-owned JavaScript evidence runtime v2
 
-Status: authorized implementation candidate, 2026-10-08. Service candidate
-version 0.3.15; historical 0.3.14 release/provenance remains immutable.
+Status: authorized implementation candidate, updated 2026-10-11. Service 0.3.19
+adds campaign clock/profile path restoration; all historical releases and
+provenance remain immutable.
 
 The exact v1 validator, supplier, arguments, output validation and authority
 remain source-compatible. V2 is an explicitly selected optional capability of
@@ -22,6 +23,49 @@ and UCI options, plus selected component root/manifest/digest/entrypoint. The
 executable remains an executable. V2 uses this target-specific binding;
 `config.runtimeRoot` retains only historical v1 meaning. Runtime/model/library
 identity is opaque and engine-owned; no numeric/digest coercion is permitted.
+
+Service 0.3.19 consumes optional top-level `clock_option_bindings` using the
+closed `arena_uci_clock_option_bindings_v1`/version 1 profile declaration. One or
+two bounded UCI names map only to `initial_ms` or `increment_ms`. A supplied
+declaration must exactly match the selected inventoried launch profile, and
+bound target options must keep that profile's bounded UCI scalar baseline. The
+comparison uses exact UCI string representation after scalar/type/size/control
+validation: numeric `0` and string `"0"` are equivalent, while `"00"` is not a
+substitute for numeric `0`. Original target representations remain unchanged;
+baseline placeholders grant no original clock authority. If omitted by
+an older registration client, admission can derive it from that same public
+profile. It participates in target deduplication and identity; a previously
+cached target without the declaration cannot silently match a newly declared
+target. Malformed retained declarations are catalog corruption; execution
+revalidates exact declaration/profile identity.
+
+The campaign must explicitly supply schema-admitted `initialTimeMs` and/or
+`incrementMs` for the fields its declaration uses. No default, local Manager
+probe, remaining clock or policy evidence supplies those original facts.
+Before enqueue and execution, the host validates the original parameters and
+the mapped parameters against the runtime's existing public schema. Execution
+maps them into ephemeral `candidateOptions` and `controlOptions`; registered
+launch options and stored original campaign parameters remain unchanged. A
+conflicting per-role UCI representation or a runtime that does not admit those role fields
+fails before attempt files or engine launch. These request options enter the
+engine-owned runner before readiness. The declaration remains identity metadata
+in the opaque target identity echo, not an added UCI launch argument or a new
+runtime executor interface.
+
+The existing v2 runner exposes no independent typed UCI spin/bounds observation
+port. Evidence does not add a UCI controller or claim such qualification. It
+validates the published declaration, safe UCI baseline, explicit original input
+and public campaign bounds; engine-owned readiness remains the actual option
+acceptance gate, and readiness failures remain failures. The unchanged Vector
+runner sends options before `ucinewgame`/`isready`; Vector's `ucinewgame` clears
+game state and policy admission but preserves configured options. Other timing
+qualification, strategy and publication authority remains engine-owned.
+
+An explicit `TimingPolicyFile`/`TimingPolicySha256` pair is projected through the
+exact selected inventory to an absolute contained regular path with matching
+SHA256. Partial pairs, links, escapes, unlisted files and digest substitution
+fail. No file extension or arbitrary option string is interpreted as a path.
+The Installer renderer emits this normalized target and keeps its clock baseline.
 
 Catalog schema 3 adds one nullable bounded runtime_binding_json column. Version
 1/2 migration preserves legacy rows/evidence. V2 launch columns are checked
@@ -55,7 +99,7 @@ referee, chess, timing and statistics; service owns scheduling, isolation,
 cancellation, retention, normalization and publication limits. V2 measurements
 remain diagnostic-only until separate accepted qualification and exact evidence.
 
-Installer retains context/binding v1. The current concrete CUDA.js suite cohort
+Installer retains context/binding v1. The current concrete cuda-js suite cohort
 binds Node + Vector through evidence_runtime_root, engine_component_manifest and
 engine_launch_profile metadata. Inventoried managed profile launch/options become
 a typed active target without reconstructing model identity. This selected

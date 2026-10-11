@@ -1,18 +1,29 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, renameSync } from 'node:fs';
 import path from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
 import { canonicalJson } from '@uci-arena/time-profile-contract';
 import { targetIdentity } from './identity.mjs';
+import {bindCampaignClockOptions,uciOptionRepresentation} from './runtime_clock_options.mjs';
 
 
+export function admitRuntimeCampaignParameters(target,runtime,campaign,input){
+  if(!target.runtimeBinding||canonicalJson(target.runtimeBinding.identity)!==canonicalJson(runtime.identity))throw new Error('v2 target runtime binding identity drifted');
+  if(!isDeepStrictEqual(target.runtimeBinding.clock_option_bindings,runtime.clockOptionBindings))throw new Error('v2 target clock declaration drifted');
+  const original=runtime.validateCampaign(campaign,input);
+  if(runtime.clockOptionBindings)for(const [name,value]of Object.entries(runtime.clockOptionBaselines))if(uciOptionRepresentation(target.runtimeBinding.launch.uci_options[name])!==uciOptionRepresentation(value))throw new Error('registered campaign clock baseline drifted');
+  const mapped=bindCampaignClockOptions(runtime.clockOptionBindings,runtime.clockOptionBaselines,original);
+  // The existing public runtime must explicitly accept both per-role fields;
+  // no new runner API, parameter default or engine controller is invented.
+  return runtime.validateCampaign(campaign,mapped);
+}
 export function runtimeV2Command(job,target,runtime,attemptDirectory) {
   if(runtime.capabilities[job.adapter]?.status !== 'available') {
     throw new Error(`evidence runtime ${job.adapter} is unsupported: ${runtime.capabilities[job.adapter]?.reason ?? 'not declared'}`);
   }
-  if(!target.runtimeBinding||canonicalJson(target.runtimeBinding.identity)!==canonicalJson(runtime.identity))throw new Error('v2 target runtime binding identity drifted');
   const campaign=job.config?.campaign;const declaration=runtime.campaigns.get(campaign);
   if(!declaration||!declaration.workloads.includes(job.adapter))throw new Error('selected runtime campaign/workload is unsupported');
-  const parameters=runtime.validateCampaign(campaign,job.config?.parameters??{});
+  const parameters=admitRuntimeCampaignParameters(target,runtime,campaign,job.config?.parameters??{});
   mkdirSync(attemptDirectory,{recursive:true});
   const request={schema:'uci_arena_evidence_request_v2',request_id:randomUUID(),job_id:job.id,shard_id:job.shardId,
     workload:job.adapter,target_identity:targetIdentity(target),runtime_identity:runtime.identity,

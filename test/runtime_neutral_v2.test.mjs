@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync, existsSync, lstatSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -12,10 +12,11 @@ import { loadConfig } from '../src/config.mjs';
 import { registerTargetApi, enqueueCampaignApi, orchestrationStatusApi } from '../src/manager_api.mjs';
 import { resolveJobTarget, targetIdentity } from '../src/identity.mjs';
 import { renderInstallerConfiguration } from '../src/installer_integration.mjs';
+import {enqueueManagedUciMeasurements} from '../src/campaign.mjs';
 const hash=b=>createHash('sha256').update(b).digest('hex');
 
 export function providerFixture(t,id='different.cpu-engine',identity={schema:'different_cpu_identity_v7',build:'portable-fixture'},gpu=false) {
-  const cleanups=[];const root=mkdtempSync(path.join(os.tmpdir(),'evidence-neutral-'));t.after(()=>{for(const close of cleanups)close();rmSync(root,{recursive:true,force:true});});
+  const cleanups=[],parent=realpathSync(os.tmpdir());const root=mkdtempSync(path.join(parent,'evidence-neutral-')),incarnation=lstatSync(root,{bigint:true});t.after(()=>{for(const close of cleanups)close();const current=lstatSync(root,{bigint:true});assert(current.isDirectory()&&!current.isSymbolicLink());assert.equal(realpathSync(root),root);assert.equal(path.dirname(root),parent);assert(path.basename(root).startsWith('evidence-neutral-'));for(const key of ['dev','ino','birthtimeNs'])assert.equal(current[key],incarnation[key]);rmSync(root,{recursive:true,force:true});});
   const schema={type:'object',additionalProperties:false,properties:{initialTimeMs:{type:'integer',minimum:1,maximum:60000},maxPlies:{type:'integer',minimum:1,maximum:128}},required:[]};
   const contract={schema:'uci_arena_evidence_runtime_v2',component_id:id,component_version:'1.2.3',target_triple:process.platform==='win32'?'windows-x86_64':'linux-x86_64',runtime_identity:{path:'contracts/identity.json',schema:identity.schema},referee:'tools/referee.mjs',resource_requirements:{gpu},capabilities:{complete_game:{status:'available',entrypoint:'tools/evidence.mjs',request_schema:'uci_arena_evidence_request_v2',output_schema:'uci_arena_evidence_result_v2'},paired_sprt:{status:'unsupported',reason:'not implemented'},timing_profile:{status:'unsupported',reason:'not implemented'}},campaigns:[{name:'bounded-games',parameters_schema:'contracts/parameters.json',workloads:['complete_game']}]};
   const files={'bin/engine.bin':'different engine bytes','tools/evidence.mjs':'// runner','tools/referee.mjs':'// referee','contracts/identity.json':JSON.stringify(identity),'contracts/parameters.json':JSON.stringify(schema),'contracts/evidence-runtime-contract.json':JSON.stringify(contract)};
@@ -31,6 +32,82 @@ function replaceContract(f) {
   Object.assign(f.manifest.files.find(row=>row.path==='contracts/evidence-runtime-contract.json'),{sha256:hash(bytes),size_bytes:Buffer.byteLength(bytes)});
   const manifest=JSON.stringify(f.manifest);writeFileSync(path.join(f.root,'arena-component.json'),manifest);f.binding.component.manifest_sha256=hash(manifest);
 }
+function replaceFixtureFile(f,name,value){
+ const bytes=typeof value==='string'?value:JSON.stringify(value);mkdirSync(path.dirname(path.join(f.root,name)),{recursive:true});writeFileSync(path.join(f.root,name),bytes);
+ const row={path:name,sha256:hash(bytes),size_bytes:Buffer.byteLength(bytes)},old=f.manifest.files.find(x=>x.path===name);if(old)Object.assign(old,row);else f.manifest.files.push(row);
+ const manifest=JSON.stringify(f.manifest);writeFileSync(path.join(f.root,'arena-component.json'),manifest);f.binding.component.manifest_sha256=hash(manifest);
+}
+function clockFixture(t){
+ const f=providerFixture(t),options={Hash:16,OriginalTime:0,OriginalIncrement:0};
+ const profile={schema:'arena_uci_engine_launch_profile_v1',schema_version:1,component:{id:f.manifest.component_id,version:f.manifest.component_version,root:'.'},
+  engine:{adapter:'standard_uci_v1',executable:'bin/engine.bin',arguments:['--mode','analysis'],working_directory:'.'},enabled:true,state:'conservative',expected_runtime:null,uci_options:options,
+  clock_option_bindings:{schema:'arena_uci_clock_option_bindings_v1',schema_version:1,bindings:{OriginalTime:'initial_ms',OriginalIncrement:'increment_ms'}}};
+ f.manifest.entrypoints.uci_launch_profile='contracts/launch.json';f.profile=profile;f.input.launch.uci_options=structuredClone(options);
+ replaceFixtureFile(f,'contracts/launch.json',profile);
+ const scalar={type:['string','integer','boolean'],maxLength:512,minimum:-9007199254740991,maximum:9007199254740991},role={type:'object',properties:{},required:[],maxProperties:64,additionalProperties:scalar};
+ replaceFixtureFile(f,'contracts/parameters.json',{type:'object',additionalProperties:false,properties:{initialTimeMs:{type:'integer',minimum:1,maximum:60000},incrementMs:{type:'integer',minimum:0,maximum:1000},candidateOptions:role,controlOptions:role},required:[]});
+ return f;
+}
+
+test('v2 campaign clock declaration maps original parameters into ephemeral role options, not target baseline',t=>{
+ const f=clockFixture(t),target=admitRuntimeTarget(f.input),parameters={initialTimeMs:50000,incrementMs:10,candidateOptions:{Hash:32}},before=structuredClone(parameters);
+ const job={id:'j',shardId:'s',adapter:'complete_game',config:{campaign:'bounded-games',parameters}};
+ const command=adapterCommand(job,target,{},path.join(f.root,'attempt')),request=JSON.parse(readFileSync(command.args[2]));
+ assert.deepEqual(request.config.candidateOptions,{Hash:32,OriginalTime:50000,OriginalIncrement:10});assert.deepEqual(request.config.controlOptions,{OriginalTime:50000,OriginalIncrement:10});
+ assert.equal(request.launch.uci_options.OriginalTime,0);assert.equal(target.uciOptions.OriginalTime,0);assert.deepEqual(parameters,before);
+ assert.deepEqual(request.target_identity.launch.uci_options,target.runtimeBinding.launch.uci_options);
+});
+test('clock campaign missing originals, role conflicts or unsupported parameter slots reject before attempt files',t=>{
+ const f=clockFixture(t),target=admitRuntimeTarget(f.input);
+ for(const parameters of [{},{initialTimeMs:50000},{initialTimeMs:50000,incrementMs:10,controlOptions:{OriginalTime:60000}}]){
+  const attempt=path.join(f.root,'absent-attempt');assert.throws(()=>adapterCommand({id:'j',shardId:'s',adapter:'complete_game',config:{campaign:'bounded-games',parameters}},target,{},attempt));assert.equal(existsSync(attempt),false);
+ }
+ replaceFixtureFile(f,'contracts/parameters.json',{type:'object',additionalProperties:false,properties:{initialTimeMs:{type:'integer',minimum:1,maximum:60000},incrementMs:{type:'integer',minimum:0,maximum:1000}},required:[]});
+ assert.throws(()=>adapterCommand({id:'j',shardId:'s',adapter:'complete_game',config:{campaign:'bounded-games',parameters:{initialTimeMs:50000,incrementMs:10}}},admitRuntimeTarget(f.input),{},path.join(f.root,'unsupported-attempt')));
+ assert.equal(existsSync(path.join(f.root,'unsupported-attempt')),false);
+});
+test('campaign enqueue validates original-clock handoff before creating durable dataset/jobs',t=>{
+ const f=clockFixture(t),target=admitRuntimeTarget(f.input),calls=[],catalog={jobByFingerprint(){calls.push('lookup');return null;},createDataset(){calls.push('dataset');return 'd';},enqueueJob(value){calls.push('job');return value;}};
+ assert.throws(()=>enqueueManagedUciMeasurements(catalog,{target,campaign:'bounded-games',configuration:{}}));assert.deepEqual(calls,[]);
+ const configuration={initialTimeMs:50000,incrementMs:0},jobs=enqueueManagedUciMeasurements(catalog,{target,campaign:'bounded-games',configuration});
+ assert.deepEqual(jobs[0].config.parameters,configuration);assert.equal(target.uciOptions.OriginalTime,0);
+});
+test('inventoried declaration is closed and a local probe value cannot replace stored profile baseline',t=>{
+ const f=clockFixture(t);const probe=structuredClone(f.input);probe.launch.uci_options.OriginalTime=180000;assert.throws(()=>admitRuntimeTarget(probe));
+ for(const mutate of [p=>p.clock_option_bindings.extra=true,p=>p.clock_option_bindings.bindings.OriginalTime='remaining_ms',p=>p.clock_option_bindings.bindings.Missing='initial_ms']){
+  const changed=structuredClone(f.profile);mutate(changed);replaceFixtureFile(f,'contracts/launch.json',changed);assert.throws(()=>admitRuntimeTarget(f.input));
+ }
+});
+test('explicit target declaration matches owned profile and participates in cached target identity',async t=>{
+ const f=clockFixture(t);f.input.clock_option_bindings=structuredClone(f.profile.clock_option_bindings);
+ const target=admitRuntimeTarget(f.input);assert.deepEqual(target.runtimeBinding.clock_option_bindings,f.profile.clock_option_bindings);
+ const config=await loadConfig({workspace:path.join(f.root,'state')}),catalog=new Catalog(config);f.cleanups.push(()=>catalog.close());
+ const legacy=structuredClone(target);delete legacy.runtimeBinding.clock_option_bindings;catalog.addTarget(legacy);
+ assert.equal(catalog.findExactTarget(target),null);catalog.addTarget(target);assert.notEqual(catalog.findExactTarget(target),null);
+ assert.notDeepEqual(targetIdentity(legacy),targetIdentity(target));
+ const drift=structuredClone(target);drift.runtimeBinding.clock_option_bindings.bindings.OriginalTime='increment_ms';
+ assert.throws(()=>adapterCommand({id:'j',shardId:'s',adapter:'complete_game',config:{campaign:'bounded-games',parameters:{initialTimeMs:1000,incrementMs:0}}},drift,{},path.join(f.root,'drift-attempt')));assert.equal(existsSync(path.join(f.root,'drift-attempt')),false);
+ const input=structuredClone(f.input);input.clock_option_bindings.bindings.OriginalTime='increment_ms';assert.throws(()=>admitRuntimeTarget(input));
+});
+test('actual Manager string baseline survives public admission and campaign handoff without supplying actual time',t=>{
+ const f=clockFixture(t);f.input.clock_option_bindings=structuredClone(f.profile.clock_option_bindings);f.input.launch.uci_options.OriginalTime='0';f.input.launch.uci_options.OriginalIncrement='0';
+ const target=admitRuntimeTarget(f.input);assert.equal(target.runtimeBinding.launch.uci_options.OriginalTime,'0');
+ const parameters={initialTimeMs:50000,incrementMs:0,candidateOptions:{OriginalTime:'50000'}},command=adapterCommand({id:'j',shardId:'s',adapter:'complete_game',config:{campaign:'bounded-games',parameters}},target,{},path.join(f.root,'string-baseline-attempt'));
+ const request=JSON.parse(readFileSync(command.args[2]));assert.equal(request.launch.uci_options.OriginalTime,'0');assert.equal(request.config.candidateOptions.OriginalTime,50000);
+ for(const value of ['00',null,false,{},'0\n']){
+  const changed=structuredClone(f.input);changed.launch.uci_options.OriginalTime=value;assert.throws(()=>admitRuntimeTarget(changed));
+ }
+});
+test('owned TimingPolicy File/Sha pair becomes absolute in target and renderer without clock inference',t=>{
+ const f=clockFixture(t),name='contracts/policy.json',policy='opaque policy fixture; no clock inference';replaceFixtureFile(f,name,policy);
+ Object.assign(f.profile.uci_options,{TimingPolicyFile:name,TimingPolicySha256:hash(policy)});replaceFixtureFile(f,'contracts/launch.json',f.profile);f.input.launch.uci_options=structuredClone(f.profile.uci_options);
+ const target=admitRuntimeTarget(f.input);assert.equal(target.runtimeBinding.launch.uci_options.TimingPolicyFile,path.join(f.root,name));assert.equal(f.input.launch.uci_options.TimingPolicyFile,name);
+ const result=renderInstallerConfiguration({schema:'arena_provider_install_context_v1',schema_version:1,workspace:path.join(f.root,'state'),bindings:{evidence_runtime_root:f.root,engine_component_manifest:path.join(f.root,'arena-component.json'),engine_launch_profile:path.join(f.root,'contracts/launch.json')}});
+ const installed=result.generated_documents[0].document.target;assert.equal(installed.launch.uci_options.TimingPolicyFile,path.join(f.root,name));assert.equal(installed.launch.uci_options.OriginalTime,0);
+ for(const options of [{...f.input.launch.uci_options,TimingPolicyFile:'../outside.json'},
+  {...f.input.launch.uci_options,TimingPolicySha256:'a'.repeat(64)}, {...f.input.launch.uci_options,TimingPolicyFile:'contracts/missing.json'}])assert.throws(()=>admitRuntimeTarget({...f.input,launch:{...f.input.launch,uci_options:options}}));
+ const missing=structuredClone(f.input);delete missing.launch.uci_options.TimingPolicySha256;assert.throws(()=>admitRuntimeTarget(missing));
+});
 test('unrelated CPU and Vector identities use same generic admission without product dispatch',t=>{
   for(const f of [providerFixture(t),providerFixture(t,'uci_arena.vector',{schema:'vector_engine_runtime_identity_v1',model:{checkpointSha256:'a'.repeat(64)}},true)]) {
     if(f.binding.component.id!=='uci_arena.vector'){f.input.launch.arguments=[];f.input.launch.working_directory=path.join(f.root,'bin');}
