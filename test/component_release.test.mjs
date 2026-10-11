@@ -112,6 +112,12 @@ test("provider release proves independent target-scoped native reproducibility",
     "node_runtime.private",
   );
   assert.equal(definition.installer_integration.workspace_placement, "product_data");
+  assert.deepEqual(definition.include.find((mapping) => mapping.source === "src"),
+    { source: "src", target: "services/evidence-service/src" });
+  // Full recursive src packaging retains the observer loaded as a runtime file.
+  const packager = readFileSync(new URL("../tools/release/component_release.mjs", import.meta.url), "utf8");
+  assert.match(packager, /if \(entry\.isDirectory\(\)\) rows\.push\(\.\.\.listFiles\(root, normalized\)\)/u);
+  assert.match(packager, /for \(const relative of listFiles\(source\)\)/u);
   assert.deepEqual(
     definition.include.find((mapping) => mapping.source === "vendor/time-profile-contract"),
     {

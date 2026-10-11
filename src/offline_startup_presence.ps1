@@ -13,11 +13,13 @@ try {
         $task = $folder.GetTask($TaskName)
         if ($null -ne $task) { $state = 'present' }
     } catch {
-        # Only a typed COM file-not-found result from GetTask proves absence.
+        # PowerShell may map native HRESULT_FILE_NOT_FOUND to FileNotFoundException.
+        # Only those typed native/mapped results at GetTask prove absence.
         # HRESULTs from connection/root-folder failures never enter this branch.
         $exception = $_.Exception
         for ($depth = 0; $depth -lt 8 -and $null -ne $exception; $depth++) {
-            if ($exception -is [System.Runtime.InteropServices.COMException]) {
+            if ($exception -is [System.Runtime.InteropServices.COMException] -or
+                $exception -is [System.IO.FileNotFoundException]) {
                 if ($exception.HResult -eq -2147024894) { $state = 'absent' }
                 break
             }
