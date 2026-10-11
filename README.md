@@ -86,7 +86,9 @@ be paused. The command verifies daemon absence, original and copied file
 identities, artifact digests and log bytes before updating only the three
 artifact/log locator columns. Historical provenance remains unchanged. It needs
 no engine or selected evidence runtime; Windows needs the packaged identity
-helper. Exit codes are 0 for confirmed adoption, 2 for deferred verification,
+helper and its local Task Scheduler COM query. Access-denied or unavailable
+startup observations defer; a numeric task-command exit code cannot prove
+absence. Exit codes are 0 for confirmed adoption, 2 for deferred verification,
 and 1 for an uncertain effect or cleanup failure. The optional
 `--maximum-milliseconds` accepts 1..60000 and bounds cooperative work.
 

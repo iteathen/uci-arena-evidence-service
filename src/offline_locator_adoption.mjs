@@ -5,7 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { readDaemonRecord, daemonOwnerFromRecord } from './daemon_owner_record.mjs';
 import { processIdentityFromJson, validProcessIdentity, sameProcessInstance, probeProcessInstance } from './process_identity.mjs';
-import { startupStatus } from './platform_startup.mjs';
+import { offlineStartupPresence, STARTUP_PRESENCE_SCHEMA } from './platform_startup.mjs';
 
 export const LOCATOR_ADOPTION_SCHEMA = 'uci_arena_evidence_locator_adoption_v1';
 const MAXIMUM_BYTES = 1_099_511_627_776;
@@ -116,13 +116,15 @@ async function owners(config, state, probe, check) {
   }
 }
 export async function adoptOfflineLocators({ sourceConfig, destinationConfig, maximumMilliseconds = 60000,
-  observeStartup = startupStatus, processProbe = probeProcessInstance }) {
+  observeStartup = offlineStartupPresence, processProbe = probeProcessInstance }) {
   const started = performance.now(); let source, destination, stage, stageIdentity, transaction = false, completion = 'not_attempted', result;
   const stageFiles = new Map();
   const check = () => { const remaining = maximumMilliseconds - (performance.now() - started);
     if (remaining <= 0) defer('cancelled_or_timeout'); return remaining; };
   const startup = async () => { for (const config of [sourceConfig,destinationConfig]) {
-    check(); const value = await observeStartup(config); check(); if (value?.installed !== false) defer('startup_not_absent'); } };
+    const timeoutMs = Math.min(10000,Math.max(1,Math.floor(check())));
+    const value = await observeStartup(config,{timeoutMs}); check();
+    if (value?.schema !== STARTUP_PRESENCE_SCHEMA || value.state !== 'absent') defer('startup_not_absent'); } };
   try {
     if (!Number.isSafeInteger(maximumMilliseconds) || maximumMilliseconds < 1 || maximumMilliseconds > 60000) defer('invalid_request');
     const oldRoot = absolute(sourceConfig?.workspace), newRoot = absolute(destinationConfig?.workspace);

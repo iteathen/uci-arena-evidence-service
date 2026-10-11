@@ -32,10 +32,10 @@ async function fixture(t) {
   catalog.close(); cpSync(source,target,{recursive:true});
   return {folder,source,target,digest,relative,logs,attemptId};
 }
-function invoke(f,extra=[]) {
+function invoke(f,extra=[],environment={}) {
   const child = spawnSync(process.execPath,['--import',pathToFileURL(path.join(root,'test/support/offline_startup_absent.mjs')).href,
     path.join(root,'src/cli.mjs'),'workspace','adopt-locators','--source-workspace',f.source,'--workspace',f.target,...extra],
-  {cwd:root,encoding:'utf8',windowsHide:true,timeout:15000});
+  {cwd:root,encoding:'utf8',windowsHide:true,timeout:15000,env:{...process.env,...environment}});
   return {exit:child.status,stdout:child.stdout,stderr:child.stderr,result:child.stdout.trim()?JSON.parse(child.stdout):null};
 }
 function edit(f,sql,...args) {const db=new DatabaseSync(path.join(f.target,'catalog.sqlite')); try {db.prepare(sql).run(...args);} finally {db.close();}}
@@ -83,11 +83,18 @@ cliTest('copied legacy or missing daemon identity is not treated as exact absenc
   const f=await fixture(t);edit(f,"UPDATE daemon_state SET pid=4242,phase='stopped',process_identity_json=''");
   const called=invoke(f);assert.equal(called.exit,2);assert.equal(called.result.reason,'daemon_unverifiable');
 });
+cliTest('an access-denied startup query never becomes verified absence or permits locator mutation',async t=>{
+  const f=await fixture(t),before=readFileSync(path.join(f.target,'catalog.sqlite'));
+  const result=invoke(f,[],{EVIDENCE_FIXTURE_STARTUP_DENIED:'1'});
+  assert.equal(result.exit,2,JSON.stringify(result));assert.equal(result.result.reason,'startup_not_absent');
+  assert.equal(result.result.completion,'not_attempted');assert.deepEqual(readFileSync(path.join(f.target,'catalog.sqlite')),before);
+  assert.equal(result.stderr,'');
+});
 const identity={schema:'uci_arena_process_instance_identity_v1',platform:process.platform,pid:4242,
   start_token:'504911232000000001',executable_path:process.platform==='win32'?'C:/fixture/node.exe':'/fixture/node',boot_id:''};
 async function adopt(f,overrides={}) {
   return adoptOfflineLocators({sourceConfig:await loadConfig({workspace:f.source}),destinationConfig:await loadConfig({workspace:f.target}),
-    observeStartup:async()=>({installed:false}),processProbe:()=>({state:'absent'}),...overrides});
+    observeStartup:async()=>({schema:'uci_arena_evidence_startup_presence_v1',state:'absent'}),processProbe:()=>({state:'absent'}),...overrides});
 }
 test('an exact live or unknown daemon defers while dead and reused owners are admitted',async t=>{
   const f=await fixture(t);edit(f,'UPDATE daemon_state SET pid=?,process_identity_json=?',identity.pid,JSON.stringify(identity));
@@ -99,7 +106,7 @@ test('an exact live or unknown daemon defers while dead and reused owners are ad
 });
 test('uninstalled startup must stay absent until publication',async t=>{
   const f=await fixture(t);let calls=0;
-  const result=await adopt(f,{observeStartup:async()=>({installed:++calls>2})});
+  const result=await adopt(f,{observeStartup:async()=>({schema:'uci_arena_evidence_startup_presence_v1',state:++calls>2?'present':'absent'})});
   assert.equal(result.reason,'startup_not_absent');assert.equal(result.completion,'not_attempted');
 });
 test('source and destination lock and heartbeat identities must all be absent',async t=>{
@@ -113,14 +120,14 @@ test('source and destination lock and heartbeat identities must all be absent',a
 });
 test('a source log change after initial verification rolls back adoption',async t=>{
   const f=await fixture(t);let calls=0;
-  const result=await adopt(f,{observeStartup:async()=>{if(++calls===3)writeFileSync(f.logs[0],'changed');return{installed:false};}});
+  const result=await adopt(f,{observeStartup:async()=>{if(++calls===3)writeFileSync(f.logs[0],'changed');return{schema:'uci_arena_evidence_startup_presence_v1',state:'absent'};}});
   assert.equal(result.reason,'source_changed');
   const db=new DatabaseSync(path.join(f.target,'catalog.sqlite'));try{assert.equal(db.prepare('SELECT path FROM artifacts').get().path,path.join(f.source,f.relative));}finally{db.close();}
 });
 test('source locator projection drift rejects a copied workspace',async t=>{
   const f=await fixture(t);let calls=0;
   const result=await adopt(f,{observeStartup:async()=>{if(++calls===3){const db=new DatabaseSync(path.join(f.source,'catalog.sqlite'));
-    try{db.prepare('UPDATE artifacts SET schema=?').run('changed');}finally{db.close();}}return{installed:false};}});
+    try{db.prepare('UPDATE artifacts SET schema=?').run('changed');}finally{db.close();}}return{schema:'uci_arena_evidence_startup_presence_v1',state:'absent'};}});
   assert.equal(result.reason,'source_changed');
 });
 test('reparse ancestors and missing copied logs fail without touching the originals',async t=>{
@@ -173,4 +180,7 @@ test('existing WAL state is read through a private copy without altering origina
 test('a retained rollback journal is not silently replayed or ignored',async t=>{
   const f=await fixture(t);writeFileSync(path.join(f.source,'catalog.sqlite-journal'),'opaque unresolved journal');
   const result=await adopt(f);assert.equal(result.reason,'catalog_unavailable');assert.equal(result.completion,'not_attempted');
+});
+test('a legacy installed false flag is insufficient proof for offline mutation',async t=>{
+  const f=await fixture(t);assert.equal((await adopt(f,{observeStartup:async()=>({installed:false})})).reason,'startup_not_absent');
 });
