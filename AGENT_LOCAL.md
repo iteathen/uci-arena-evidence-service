@@ -16,6 +16,11 @@ node tools/spec-preflight.mjs --task "<description>" --changed-files <likely pat
 
 Read the active specs returned by preflight. Repository-boundary/runtime-contract/Manager/packaging/publication work also follows `specs/suite_lego_boundaries_v1.yaml` and the canonical suite architecture in `iteathen/uci-arena-installer`.
 
+Timing-policy purpose and population/discovery/qualification boundaries follow
+`specs/timing_evidence_purpose_v1.yaml`. Its production direction does not claim
+all population-learning stages are implemented. Current optional engine-owned
+runtime and clock admission remain in `specs/evidence_runtime_v2.md`.
+
 ## Local constraints
 
 Engine-owned evidence runtime tools are invoked through published contracts. Chess legality, UCI engine behavior, referee behavior, engine-runtime statistical/timing algorithms, and private sibling source remain outside this service.

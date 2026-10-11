@@ -8,6 +8,16 @@ spec:
     identity-bound background jobs without moving chess, UCI, search, referee,
     or statistical authority into the service.
 
+timing_policy_direction:
+  authority: specs/timing_evidence_purpose_v1.yaml
+  relationship: >
+    Population evidence, frozen candidates and independent qualification define
+    the timing-policy production direction. This current orchestration contract
+    remains an implemented subset; runtime-v2 and explicit original-clock
+    admission retain their existing compatibility and exact identity gates.
+    Runtime/statistical algorithms and active-game policy application stay with
+    their external owners. No new policy pipeline is claimed by this amendment.
+
 ownership:
   service:
     - target_resolution
