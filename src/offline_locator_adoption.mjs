@@ -87,31 +87,60 @@ function locatorRows(db, check) {
 }
 async function owners(config, state, probe, check) {
   const ids = [];
+  const pidValid = pid => Number.isSafeInteger(pid) && pid >= 1 && pid <= 0xffff_ffff;
+  const stampValid = value => {
+    if (typeof value !== 'string' || value.length > 32) return false;
+    try { return new Date(value).toISOString() === value; } catch { return false; }
+  };
+  const legacyRecord = (value,timeField,optionalNonce = false) => {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || !pidValid(value.pid) || !stampValid(value[timeField])) return false;
+    const allowed = ['pid',timeField,...(optionalNonce ? ['nonce'] : [])];
+    return Object.keys(value).every(k=>allowed.includes(k))
+      && (!Object.hasOwn(value,'nonce') || typeof value.nonce === 'string' && value.nonce.length >= 1 && value.nonce.length <= 128);
+  };
+  const legacyCatalog = value => {
+    const fields = ['singleton','pid','phase','current_job_id','resource_mode','started_at','heartbeat_at',
+      'cycle_started_at','cycle_completed_at','last_error','last_report_json','process_identity_json'];
+    return Object.keys(value).length === fields.length && fields.every(k=>Object.hasOwn(value,k)) && value.singleton === 1
+      && pidValid(value.pid) && value.process_identity_json === '' && ['stopped','sampling','sleep','failed'].includes(value.phase)
+      && stampValid(value.started_at) && stampValid(value.heartbeat_at)
+      && [value.cycle_started_at,value.cycle_completed_at].every(v=>v === null || stampValid(v))
+      && (value.current_job_id === null || typeof value.current_job_id === 'string' && value.current_job_id.length >= 1 && value.current_job_id.length <= 256)
+      && typeof value.resource_mode === 'string' && value.resource_mode.length <= 256
+      && typeof value.last_error === 'string' && value.last_error.length <= 262144
+      && typeof value.last_report_json === 'string' && value.last_report_json.length <= 262144;
+  };
   if (!state?.daemon || !state?.control) defer('catalog_unavailable');
   const daemon = state.daemon;
   if (daemon.pid !== null || daemon.process_identity_json) {
     const identity = processIdentityFromJson(daemon.process_identity_json,daemon.pid);
-    if (!identity) defer('daemon_unverifiable'); ids.push(identity);
+    if (!identity && !legacyCatalog(daemon)) defer('daemon_unverifiable'); ids.push({pid:daemon.pid,identity});
   } else if (!['stopped','failed'].includes(daemon.phase)) defer('daemon_unverifiable');
   for (const [name,heartbeat] of [['daemon.lock',false],['daemon.heartbeat.json',true]]) {
     const file = path.join(config.workspace,'locks',name); let packet;
     try { admit(file); packet = await readDaemonRecord(file); } catch (error) { if (error?.code === 'ENOENT') continue; defer('daemon_unverifiable'); }
     check(); if (!packet) defer('source_changed');
-    let identity;
+    let identity, pid;
     try {
       if (heartbeat) {
         const value = packet.value;
         if (!value || Object.keys(value).some(k=>!['pid','nonce','process_identity','heartbeat_at'].includes(k))) defer('daemon_unverifiable');
-        identity = processIdentityFromJson(value.process_identity,value.pid);
-      } else identity = daemonOwnerFromRecord(packet).identity;
+        pid = value.pid;
+        if (Object.hasOwn(value,'process_identity')) {
+          identity = processIdentityFromJson(value.process_identity,pid); if (!identity) defer('daemon_unverifiable');
+        } else if (!legacyRecord(value,'heartbeat_at')) defer('daemon_unverifiable');
+      } else {
+        const owner = daemonOwnerFromRecord(packet); pid = owner.pid; identity = owner.identity;
+        if (!identity && !legacyRecord(packet.value,'started_at',true)) defer('daemon_unverifiable');
+      }
     } catch { defer('daemon_unverifiable'); }
-    if (!identity) defer('daemon_unverifiable'); ids.push(identity);
+    ids.push({pid,identity});
   }
-  for (const identity of ids) {
-    if (identity.platform !== process.platform) defer('daemon_unverifiable');
+  for (const {pid,identity} of ids) {
+    if (identity && identity.platform !== process.platform) defer('daemon_unverifiable');
     const timeoutMs = Math.min(2000,Math.max(1,Math.floor(check())));
-    let current; try { current = probe(identity.pid,{timeoutMs}); } catch { defer('daemon_unverifiable'); } check();
-    if (!(current?.state === 'absent' || current?.state === 'present' && validProcessIdentity(current.identity,identity.pid)
+    let current; try { current = probe(pid,{timeoutMs}); } catch { defer('daemon_unverifiable'); } check();
+    if (!(current?.state === 'absent' || identity && current?.state === 'present' && validProcessIdentity(current.identity,pid)
         && current.identity.platform === identity.platform && !sameProcessInstance(identity,current.identity))) defer('daemon_unverifiable');
   }
 }

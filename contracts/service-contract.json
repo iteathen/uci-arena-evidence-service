@@ -97,6 +97,7 @@
     "startup_requirement": "typed_verified_registration_absent_before_and_after_verification",
     "startup_presence_schema": "uci_arena_evidence_startup_presence_v1",
     "destination_requirement": "existing_schema_3_catalog_paused_before_adoption",
+    "legacy_owner_requirement": "recognized_legacy_pid_record_requires_positive_native_pid_absence;_pid_reuse_requires_retained_exact_identity",
     "updated_columns": ["artifacts.path", "attempts.stdout_path", "attempts.stderr_path"],
     "source_originals": "preserve",
     "exit_codes": {"adopted": 0, "deferred": 2, "failed": 1}

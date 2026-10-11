@@ -184,3 +184,40 @@ test('a retained rollback journal is not silently replayed or ignored',async t=>
 test('a legacy installed false flag is insufficient proof for offline mutation',async t=>{
   const f=await fixture(t);assert.equal((await adopt(f,{observeStartup:async()=>({installed:false})})).reason,'startup_not_absent');
 });
+function legacyOwners(f) {
+  const stamp='2026-10-01T00:00:00.000Z';
+  for (const workspace of [f.source,f.target]) {
+    const db=new DatabaseSync(path.join(workspace,'catalog.sqlite'));
+    try{db.prepare("UPDATE daemon_state SET pid=4652,phase='sleep',started_at=?,heartbeat_at=?,process_identity_json='' ").run(stamp,stamp);}finally{db.close();}
+  }
+  writeFileSync(path.join(f.source,'locks','daemon.lock'),JSON.stringify({pid:4652,started_at:stamp}));
+  writeFileSync(path.join(f.source,'locks','daemon.heartbeat.json'),JSON.stringify({pid:4652,heartbeat_at:stamp}));
+  return stamp;
+}
+test('recognized schema1 migrated Catalog and legacy lock heartbeat admit only positively absent PID',async t=>{
+  const f=await fixture(t);legacyOwners(f);const before=durable(f.target),sourceBytes=readFileSync(path.join(f.source,'catalog.sqlite'));
+  const probes=[];const result=await adopt(f,{processProbe:(pid,options)=>{probes.push({pid,options});return{state:'absent'};}});
+  assert.equal(result.status,'adopted');assert.ok(probes.length>0);assert.ok(probes.every(p=>p.pid===4652&&p.options.timeoutMs>=1&&p.options.timeoutMs<=2000));
+  assert.deepEqual(durable(f.target),before);assert.deepEqual(readFileSync(path.join(f.source,'catalog.sqlite')),sourceBytes);
+});
+test('legacy owners never infer PID reuse present unknown or expiry as absence',async t=>{
+  const f=await fixture(t);legacyOwners(f);
+  for(const probe of [()=>({state:'present',identity:{...identity,pid:4652}}),()=>({state:'unverifiable'}),()=>null,
+    ()=>({state:'unknown'}),()=>{throw new Error('PRIVATE_QUERY');}]) {
+    const result=await adopt(f,{processProbe:probe});assert.equal(result.reason,'daemon_unverifiable');assert.equal(result.completion,'not_attempted');
+  }
+});
+test('malformed legacy records and identities reject even an absent PID query',async t=>{
+  const f=await fixture(t),stamp=legacyOwners(f);const lock=path.join(f.source,'locks','daemon.lock'),heartbeat=path.join(f.source,'locks','daemon.heartbeat.json');
+  for (const value of [{pid:'4652',started_at:stamp},{pid:0,started_at:stamp},{pid:4652,started_at:'unknown'},
+    {pid:4652,started_at:stamp,extra:true},{pid:4652,started_at:stamp,processIdentity:null}]) {
+    writeFileSync(lock,JSON.stringify(value));assert.equal((await adopt(f)).reason,'daemon_unverifiable');
+  }
+  writeFileSync(lock,JSON.stringify({pid:4652,started_at:stamp}));
+  for(const value of [{pid:'4652',heartbeat_at:stamp},{pid:4652,heartbeat_at:stamp,extra:true},{pid:4652,heartbeat_at:'unknown'},
+    {pid:4652,heartbeat_at:stamp,process_identity:{}}]) {
+    writeFileSync(heartbeat,JSON.stringify(value));assert.equal((await adopt(f)).reason,'daemon_unverifiable');
+  }
+  writeFileSync(heartbeat,JSON.stringify({pid:4652,heartbeat_at:stamp}));edit(f,"UPDATE daemon_state SET process_identity_json='malformed'");
+  assert.equal((await adopt(f)).reason,'daemon_unverifiable');
+});

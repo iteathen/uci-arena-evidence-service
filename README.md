@@ -91,6 +91,9 @@ startup observations defer; a numeric task-command exit code cannot prove
 absence. Exit codes are 0 for confirmed adoption, 2 for deferred verification,
 and 1 for an uncertain effect or cleanup failure. The optional
 `--maximum-milliseconds` accepts 1..60000 and bounds cooperative work.
+Recognized legacy owner records require a positive native PID-absence query;
+PID reuse can be admitted only when the original exact identity was retained.
+No identity or process-exit evidence is inferred from stale timestamps.
 
 The daemon runs one engine shard at a time. It waits for sustained host and GPU
 idle evidence, available memory and disk, AC power, no Restaurant owner, and no
