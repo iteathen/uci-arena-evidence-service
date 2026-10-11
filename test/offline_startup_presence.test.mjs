@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { offlineStartupPresence } from '../src/platform_startup.mjs';
 const execute = promisify(execFile);
@@ -36,10 +37,15 @@ nativeTest('real PowerShell COM exception classification proves only exact GetTa
     {stage:'folder',kind:'com',code:-2147024894,want:'unverifiable'},
     {stage:'connect',kind:'com',code:-2147024894,want:'unverifiable'},
     {stage:'task',kind:'io',code:-2147024894,want:'unverifiable'},
+    {stage:'task',kind:'mapped-file',code:-2147024894,want:'absent'},
+    {stage:'task',kind:'mapped-file',code:-2147024891,want:'unverifiable'},
+    {stage:'task',kind:'mapped-file',code:-2147024893,want:'unverifiable'},
+    {stage:'folder',kind:'mapped-file',code:-2147024894,want:'unverifiable'},
+    {stage:'connect',kind:'mapped-file',code:-2147024894,want:'unverifiable'},
     {stage:'task',kind:'null',code:0,want:'unverifiable'},
     {stage:'task',kind:'found',code:0,want:'present'},
   ];
-  for(const sample of cases) {
+  for(const host of ['powershell.exe','pwsh.exe']) for(const sample of cases) {
     const simulated = async(file,args,options)=>{
       assert.equal(file,'powershell.exe');assert.equal(options.windowsHide,true);assert.ok(options.timeout>=1&&options.timeout<=10000);
       const index=args.indexOf('-EncodedCommand'),body=Buffer.from(args[index+1],'base64').toString('utf16le');
@@ -51,6 +57,11 @@ nativeTest('real PowerShell COM exception classification proves only exact GetTa
         $script:fixtureCode=${sample.code}
         function ThrowFixture {
           if ($script:fixtureKind -eq 'io') { throw [System.IO.IOException]::new('PRIVATE_FIXTURE',[int]$script:fixtureCode) }
+          if ($script:fixtureKind -eq 'mapped-file') {
+            $mapped=[System.IO.FileNotFoundException]::new('PRIVATE_FIXTURE')
+            [System.Exception].GetProperty('HResult').SetValue($mapped,[int]$script:fixtureCode)
+            throw $mapped
+          }
           throw [System.Runtime.InteropServices.COMException]::new('PRIVATE_FIXTURE',[int]$script:fixtureCode)
         }
         function New-Object {
@@ -71,9 +82,22 @@ nativeTest('real PowerShell COM exception classification proves only exact GetTa
         }
       `;
       const modified=[...args];modified[index+1]=Buffer.from(prefix+'\n'+body,'utf16le').toString('base64');
-      return execute(file,modified,options);
+      return execute(host,modified,options);
     };
     const result=await offlineStartupPresence(null,{platform:'win32',execute:simulated});
-    assert.equal(result.state,sample.want,JSON.stringify(sample));
+    assert.equal(result.state,sample.want,JSON.stringify({host,...sample}));
+  }
+});
+nativeTest('real missing Task Scheduler lookup is absent through both PowerShell hosts without mutation',async()=>{
+  const name='Evidence-readonly-missing-fixture-'+randomUUID();
+  for(const host of ['powershell.exe','pwsh.exe']) {
+    const result=await offlineStartupPresence(null,{platform:'win32',execute:async(file,args,options)=>{
+      assert.equal(file,'powershell.exe');
+      const index=args.indexOf('-EncodedCommand'),body=Buffer.from(args[index+1],'base64').toString('utf16le');
+      assert.ok(body.includes("-TaskName 'UCI Arena Evidence Service'"));
+      const modified=[...args];modified[index+1]=Buffer.from(body.replace("-TaskName 'UCI Arena Evidence Service'",`-TaskName '${name}'`),'utf16le').toString('base64');
+      return execute(host,modified,options);
+    }});
+    assert.equal(result.state,'absent',host);
   }
 });
