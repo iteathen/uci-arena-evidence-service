@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, openSync, readSync, closeSync, realpathSync } from 'node:fs';
 import path from 'node:path';
+import {isDeepStrictEqual} from 'node:util';
+import {admitClockOptionBindings,uciOptionRepresentation} from './runtime_clock_options.mjs';
 
 export class RuntimeCapabilityUnsupported extends Error {
   constructor(message='selected engine has no optional evidence runtime capability') {super(message);this.code='EVIDENCE_RUNTIME_UNSUPPORTED';}
@@ -39,6 +41,15 @@ function regular(root,relative) {
 function json(file,max=1048576) {
   if(lstatSync(file).size>max)throw new Error('contract JSON exceeds byte bound');
   const value=JSON.parse(readFileSync(file,'utf8'));if(!plain(value))throw new Error('contract JSON must be an object');return value;
+}
+function ownedTimingPolicyOptions(runtime,options){
+  const result=structuredClone(options),hasFile=Object.hasOwn(result,'TimingPolicyFile'),hasSha=Object.hasOwn(result,'TimingPolicySha256');
+  if(!hasFile&&!hasSha)return result;
+  if(!hasFile||!hasSha||typeof result.TimingPolicyFile!=='string'||!result.TimingPolicyFile||!sha(result.TimingPolicySha256))throw new Error('timing policy File/Sha pair is incompatible');
+  const requested=path.isAbsolute(result.TimingPolicyFile)?result.TimingPolicyFile:regular(runtime.root,result.TimingPolicyFile);
+  const identity=checkedPathIdentity(requested),owned=[...runtime.files.values()].find(file=>checkedPathIdentity(file)===identity);
+  if(!owned||fileHash(owned)!==result.TimingPolicySha256)throw new Error('timing policy File/Sha pair is outside exact inventory');
+  result.TimingPolicyFile=owned;return result;
 }
 
 // Closed structural JSON-schema subset. No executable keywords, regex, refs or
@@ -130,14 +141,26 @@ export function validateRuntimeBinding(binding) {
   const campaigns=new Map();
   for(const campaign of contract.campaigns){exact(campaign,['name','parameters_schema','workloads'],'runtime campaign');if(typeof campaign.name!=='string'||!/^[A-Za-z0-9_.-]{1,128}$/u.test(campaign.name)||campaigns.has(campaign.name)||!Array.isArray(campaign.workloads)||!campaign.workloads.length||campaign.workloads.length>3||new Set(campaign.workloads).size!==campaign.workloads.length||campaign.workloads.some(w=>contract.capabilities[w]?.status!=='available'))throw new Error('runtime campaign is incompatible');const schema=validateParameterSchema(json(inventoried(campaign.parameters_schema),65536));campaigns.set(campaign.name,{...campaign,schema});}
   const identity={component_id:c.id,component_version:c.version,target_triple:triple,manifest_sha256:c.manifest_sha256,contract_sha256:fileHash(contractPath),runtime_identity_sha256:fileHash(identityPath)};
+  let clockOptionBindings,clockOptionBaselines;
+  if(manifest.entrypoints?.uci_launch_profile!==undefined){
+    const profile=json(inventoried(manifest.entrypoints.uci_launch_profile));
+    if(Object.hasOwn(profile,'clock_option_bindings')){
+      if(profile.schema!=='arena_uci_engine_launch_profile_v1'||profile.schema_version!==1||profile.component?.id!==c.id
+        ||profile.component.version!==c.version||profile.component.root!=='.'||profile.enabled!==true)throw new Error('clock launch profile identity is incompatible');
+      clockOptionBindings=admitClockOptionBindings(profile.clock_option_bindings,profile.uci_options);
+      clockOptionBaselines=Object.freeze(Object.fromEntries(Object.keys(clockOptionBindings.bindings).map(name=>[name,profile.uci_options[name]])));
+    }
+  }
   return {major:2,root,componentId:c.id,componentVersion:c.version,contractPath,entrypoints,capabilities:contract.capabilities,engineIdentity,resourceRequirements:contract.resource_requirements,campaigns,identity,files,
+    clockOptionBindings,clockOptionBaselines,
     validateCampaign(name,parameters){const campaign=campaigns.get(name);if(!campaign)throw new RuntimeCapabilityUnsupported('selected campaign is unsupported');return validateParameters(campaign.schema,parameters);}};
 }
 
 export function admitRuntimeTarget(input) {
   if(input?.runtime_binding===null||input?.runtime_binding===undefined)throw new RuntimeCapabilityUnsupported();
-  exact(input,['schema','label','launch','runtime_binding'],'runtime target');if(input.schema!=='uci_arena_evidence_target_v2')throw new Error('target major is incompatible');
+  exact(input,['schema','label','launch','runtime_binding',...(Object.hasOwn(input,'clock_option_bindings')?['clock_option_bindings']:[])],'runtime target');if(input.schema!=='uci_arena_evidence_target_v2')throw new Error('target major is incompatible');
   const runtime=validateRuntimeBinding(input.runtime_binding);exact(input.launch,['executable','arguments','working_directory','uci_options'],'registered UCI launch');
+  if(Object.hasOwn(input,'clock_option_bindings')&&(!runtime.clockOptionBindings||!isDeepStrictEqual(admitClockOptionBindings(input.clock_option_bindings,input.launch.uci_options),runtime.clockOptionBindings)))throw new Error('target clock declaration differs from inventoried profile');
   const launch=input.launch;
   const cwd=typeof launch.working_directory==='string'?path.resolve(launch.working_directory):null;
   const rootIdentity=checkedPathIdentity(runtime.root,true);
@@ -151,8 +174,9 @@ export function admitRuntimeTarget(input) {
     ||typeof launch.working_directory!=='string'||!path.isAbsolute(launch.working_directory)||!cwdContained
     ||!Array.isArray(launch.arguments)||launch.arguments.length>64||launch.arguments.some(a=>typeof a!=='string'||a.length>4096||/[\u0000-\u001f]/u.test(a))
     ||!plain(launch.uci_options)||Object.keys(launch.uci_options).length>128)throw new Error('registered launch is outside component inventory/bounds');
-  for(const [name,value]of Object.entries(launch.uci_options))if(!/^[A-Za-z][A-Za-z0-9 _-]{0,127}$/u.test(name)||!['string','boolean','number'].includes(typeof value)||String(value).length>512||/[\u0000-\u001f]/u.test(String(value))||(typeof value==='number'&&!Number.isSafeInteger(value)))throw new Error('registered UCI option is invalid');
-  const normalized={...structuredClone(input),launch:{...structuredClone(launch),executable:path.resolve(launch.executable),working_directory:path.resolve(launch.working_directory)}};
+  for(const [name,value]of Object.entries(launch.uci_options))if(!/^[A-Za-z0-9 _-]{1,128}$/u.test(name)||!['string','boolean','number'].includes(typeof value)||String(value).length>512||/[\u0000-\u001f]/u.test(String(value))||(typeof value==='number'&&!Number.isSafeInteger(value)))throw new Error('registered UCI option is invalid');
+  if(runtime.clockOptionBindings)for(const [name,value]of Object.entries(runtime.clockOptionBaselines))if(!Object.hasOwn(launch.uci_options,name)||uciOptionRepresentation(launch.uci_options[name])!==uciOptionRepresentation(value))throw new Error('registered clock baseline differs from inventoried profile');
+  const normalized={...structuredClone(input),...(runtime.clockOptionBindings?{clock_option_bindings:structuredClone(runtime.clockOptionBindings)}:{}),launch:{...structuredClone(launch),executable:path.resolve(launch.executable),working_directory:path.resolve(launch.working_directory),uci_options:ownedTimingPolicyOptions(runtime,launch.uci_options)}};
   const projection={component_id:runtime.componentId,component_version:runtime.componentVersion,runtime_identity_sha256:runtime.identity.runtime_identity_sha256,
     capabilities:Object.entries(runtime.capabilities).map(([name,capability])=>({name,status:capability.status,...(capability.reason?{reason:capability.reason}:{})})),
     campaigns:[...runtime.campaigns.values()].map(campaign=>({name:campaign.name,workloads:campaign.workloads,parameters_schema:campaign.schema}))};

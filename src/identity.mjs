@@ -15,6 +15,7 @@ export function targetIdentity(target) {
     schema:'uci_arena_evidence_target_identity_v2',target_id:target.id??null,label:target.label,
     engine_sha256:target.engineSha256,launch:structuredClone(target.runtimeBinding.launch),
     runtime_binding:structuredClone(target.runtimeBinding.runtime_binding),runtime_identity:structuredClone(target.runtimeBinding.identity),
+    ...(target.runtimeBinding.clock_option_bindings?{clock_option_bindings:structuredClone(target.runtimeBinding.clock_option_bindings)}:{}),
   };
   return {
     target_id: target.id ?? null,

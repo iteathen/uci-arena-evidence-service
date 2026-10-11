@@ -5,6 +5,10 @@
   "type": "object", "additionalProperties": false, "required": ["schema", "label", "launch", "runtime_binding"],
   "properties": {
     "schema": {"const": "uci_arena_evidence_target_v2"}, "label": {"type": "string", "minLength": 1, "maxLength": 256},
+    "clock_option_bindings": {"type":"object","additionalProperties":false,"required":["schema","schema_version","bindings"],"properties":{
+      "schema":{"const":"arena_uci_clock_option_bindings_v1"},"schema_version":{"const":1},
+      "bindings":{"type":"object","minProperties":1,"maxProperties":2,"propertyNames":{"pattern":"^[A-Za-z0-9 _-]{1,128}$"},"additionalProperties":{"enum":["initial_ms","increment_ms"]}}
+    }},
     "launch": {"type": "object", "additionalProperties": false, "required": ["executable", "arguments", "working_directory", "uci_options"], "properties": {
       "executable": {"type": "string", "description": "Absolute actual executable, inventoried by the selected component."},
       "arguments": {"type": "array", "maxItems": 64, "items": {"type": "string", "maxLength": 4096}},

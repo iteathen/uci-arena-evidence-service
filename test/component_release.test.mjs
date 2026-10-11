@@ -16,6 +16,15 @@ import {
   validateWindowsRuntimeOwnership,
 } from "../tools/release/component_release.mjs";
 
+test('campaign clock repair is a new service patch with recursively retained owned helper',()=>{
+ const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url))),lock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));
+ assert.equal(pkg.version,'0.3.19');assert.equal(lock.version,pkg.version);assert.equal(lock.packages[''].version,pkg.version);
+ const definition=JSON.parse(readFileSync(new URL('../release/components/evidence-service.json',import.meta.url)));
+ assert.deepEqual(definition.include.find(row=>row.source==='src'),{source:'src',target:'services/evidence-service/src'});
+ const helper=readFileSync(new URL('../src/runtime_clock_options.mjs',import.meta.url),'utf8');assert.match(helper,/export function bindCampaignClockOptions/u);
+ const adapter=readFileSync(new URL('../src/runtime_v2_adapter.mjs',import.meta.url),'utf8');assert.match(adapter,/from '\.\/runtime_clock_options\.mjs'/u);
+});
+
 test("component discovery is role-declared and locator-bounded", () => {
   assert.deepEqual(
     validatedDiscovery(

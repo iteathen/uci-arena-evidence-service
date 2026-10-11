@@ -131,6 +131,8 @@ export function renderInstallerConfiguration(context) {
     const target={schema:'uci_arena_evidence_target_v2',label:manifest.component_id,launch:{executable:path.resolve(root,profile.engine.executable),
       arguments:profile.engine.arguments,working_directory:path.resolve(root,profile.engine.working_directory),uci_options:profile.uci_options??{}},runtime_binding:runtimeBinding};
     const admitted=admitRuntimeTarget(target);
+    target.launch=structuredClone(admitted.runtimeBinding.launch);
+    if(admitted.runtimeBinding.clock_option_bindings)target.clock_option_bindings=structuredClone(admitted.runtimeBinding.clock_option_bindings);
     const pointer={schema:'arena_installed_active_evidence_target_v2',target};
     return {schema:'arena_provider_install_result_v1',schema_version:1,configuration:{schema:'uci_arena_evidence_service_config_v1',workspace,
       activeModelPointer:path.join(workspace,'active-evidence-target.json'),profileImports:[],engine:admitted.enginePath},
