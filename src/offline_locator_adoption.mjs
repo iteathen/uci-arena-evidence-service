@@ -37,6 +37,15 @@ function admit(filename, directory = false) {
   if (directory ? !info.isDirectory() : !info.isFile() || info.size > MAXIMUM_BYTES) defer('file_unavailable');
   return info;
 }
+function absentHistoricalRoot(root) {
+  // Every parent must exist and be ordinary; only the declared leaf ENOENT
+  // establishes this retired locator namespace. No unavailable owner is guessed.
+  admit(path.dirname(root),true);
+  try { lstatSync(root); } catch (error) { if (error?.code === 'ENOENT') return; throw error; }
+  defer('file_unavailable');
+}
+const pathKey = value => process.platform === 'win32' ? value.toLowerCase() : value;
+const overlap = (left,right) => pathKey(left) === pathKey(right) || contained(left,right) || contained(right,left);
 function fileProof(filename, check, copyFilename = null, created = null) {
   check(); const info = admit(filename), handle = openSync(filename,constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   let output = null;
@@ -144,7 +153,7 @@ async function owners(config, state, probe, check) {
         && current.identity.platform === identity.platform && !sameProcessInstance(identity,current.identity))) defer('daemon_unverifiable');
   }
 }
-export async function adoptOfflineLocators({ sourceConfig, destinationConfig, maximumMilliseconds = 60000,
+export async function adoptOfflineLocators({ sourceConfig, destinationConfig, historicalLocatorRoots = [], maximumMilliseconds = 60000,
   observeStartup = offlineStartupPresence, processProbe = probeProcessInstance }) {
   const started = performance.now(); let source, destination, stage, stageIdentity, transaction = false, completion = 'not_attempted', result;
   const stageFiles = new Map();
@@ -158,6 +167,15 @@ export async function adoptOfflineLocators({ sourceConfig, destinationConfig, ma
     if (!Number.isSafeInteger(maximumMilliseconds) || maximumMilliseconds < 1 || maximumMilliseconds > 60000) defer('invalid_request');
     const oldRoot = absolute(sourceConfig?.workspace), newRoot = absolute(destinationConfig?.workspace);
     if (oldRoot === newRoot || contained(oldRoot,newRoot) || contained(newRoot,oldRoot)) defer('invalid_request');
+    if (!Array.isArray(historicalLocatorRoots) || historicalLocatorRoots.length > 8) defer('invalid_request');
+    const locatorRoots = [oldRoot];
+    for (const value of historicalLocatorRoots) {
+      const root = absolute(value);
+      if (locatorRoots.some(other=>overlap(root,other)) || overlap(root,newRoot)) defer('invalid_request');
+      locatorRoots.push(root);
+    }
+    const historicalAbsence = () => { for (const root of locatorRoots.slice(1)) { check(); absentHistoricalRoot(root); } };
+    historicalAbsence();
     admit(oldRoot,true); admit(newRoot,true);
     const oldFile = path.join(oldRoot,'catalog.sqlite'), newFile = path.join(newRoot,'catalog.sqlite');
     const oldIdentity = admit(oldFile), newIdentity = admit(newFile);
@@ -189,19 +207,25 @@ export async function adoptOfflineLocators({ sourceConfig, destinationConfig, ma
     await owners(sourceConfig,oldState,processProbe,check); await owners(destinationConfig,newState,processProbe,check);
     const oldRows = locatorRows(source,check), newRows = locatorRows(destination,check);
     if (oldRows.artifacts.length !== newRows.artifacts.length || oldRows.attempts.length !== newRows.attempts.length) defer('locator_mismatch');
-    const proofs = [], artifactUpdates = [], logUpdates = [];
+    const proofs = [], artifactUpdates = [], logUpdates = [], projectionOwners = new Map();
     const mapped = (filename,directory) => {
-      let oldPath; try { oldPath = absolute(filename); } catch { defer('locator_mismatch'); }
+      let oldLocator; try { oldLocator = absolute(filename); } catch { defer('locator_mismatch'); }
       const oldBase = path.join(oldRoot,directory), newBase = path.join(newRoot,directory);
-      if (!contained(oldBase,oldPath)) defer('locator_mismatch');
-      return { oldPath, newPath: path.join(newBase,path.relative(oldBase,oldPath)) };
+      const matched = locatorRoots.filter(root=>contained(path.join(root,directory),oldLocator));
+      if (matched.length !== 1) defer('locator_mismatch');
+      const relative = path.relative(path.join(matched[0],directory),oldLocator);
+      const oldPath = path.join(oldBase,relative), newPath = path.join(newBase,relative);
+      const key = pathKey(newPath), owner = pathKey(oldLocator);
+      if (projectionOwners.has(key) && projectionOwners.get(key) !== owner) defer('locator_mismatch');
+      projectionOwners.set(key,owner);
+      return { oldLocator, oldPath, newPath };
     };
     for (let i=0; i<oldRows.artifacts.length; i++) {
       check(); const row = oldRows.artifacts[i], copy = newRows.artifacts[i], paths = mapped(row.path,'artifacts');
       if (typeof row.schema !== 'string' || typeof row.sha256 !== 'string' || !/^[a-f0-9]{64}$/u.test(row.sha256)
           || !Number.isSafeInteger(row.size_bytes) || row.size_bytes < 0
           || row.sha256 !== copy.sha256 || row.schema !== copy.schema || row.size_bytes !== copy.size_bytes
-          || ![paths.oldPath,paths.newPath].includes(path.normalize(copy.path))) defer('locator_mismatch');
+          || ![paths.oldLocator,paths.newPath].includes(path.normalize(copy.path))) defer('locator_mismatch');
       const original = fileProof(paths.oldPath,check), restored = fileProof(paths.newPath,check);
       if ([original,restored].some(p=>p.sha256 !== row.sha256 || p.bytes !== row.size_bytes)) defer('artifact_mismatch');
       proofs.push(original,restored); artifactUpdates.push([paths.newPath,row.sha256]);
@@ -213,7 +237,7 @@ export async function adoptOfflineLocators({ sourceConfig, destinationConfig, ma
       for (const column of ['stdout_path','stderr_path']) {
         if (row[column] === '') { if (copy[column] !== '') defer('locator_mismatch'); values.push(''); continue; }
         const paths = mapped(row[column],'attempts');
-        if (![paths.oldPath,paths.newPath].includes(path.normalize(copy[column]))) defer('locator_mismatch');
+        if (![paths.oldLocator,paths.newPath].includes(path.normalize(copy[column]))) defer('locator_mismatch');
         const original = fileProof(paths.oldPath,check), restored = fileProof(paths.newPath,check);
         if (original.bytes !== restored.bytes || original.sha256 !== restored.sha256) defer('log_mismatch');
         proofs.push(original,restored); values.push(paths.newPath); logLocators++;
@@ -227,6 +251,7 @@ export async function adoptOfflineLocators({ sourceConfig, destinationConfig, ma
       if (!sameMetadata(proof.identity,current.identity) || proof.sha256 !== current.sha256) defer('source_changed');
     }
     await startup(); await owners(sourceConfig,authority(source),processProbe,check); await owners(destinationConfig,authority(destination),processProbe,check);
+    historicalAbsence();
     if (JSON.stringify(locatorRows(source,check)) !== JSON.stringify(oldRows) || JSON.stringify(authority(source)) !== JSON.stringify(oldState)
         || !sameIdentity(oldIdentity,admit(oldFile)) || !sameIdentity(newIdentity,admit(newFile))) defer('source_changed');
     for (const proof of proofs) { check(); if (!sameMetadata(proof.identity,admit(proof.filename))) defer('source_changed'); }

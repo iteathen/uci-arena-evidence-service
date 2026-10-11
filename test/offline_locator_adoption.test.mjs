@@ -6,6 +6,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
 import { Catalog } from '../src/catalog.mjs';
 import { loadConfig } from '../src/config.mjs';
@@ -220,4 +222,97 @@ test('malformed legacy records and identities reject even an absent PID query',a
   }
   writeFileSync(heartbeat,JSON.stringify({pid:4652,heartbeat_at:stamp}));edit(f,"UPDATE daemon_state SET process_identity_json='malformed'");
   assert.equal((await adopt(f)).reason,'daemon_unverifiable');
+});
+
+function historicalLocators(f,root=path.join(f.folder,'absent-historical')) {
+  for(const workspace of [f.source,f.target]) {
+    const db=new DatabaseSync(path.join(workspace,'catalog.sqlite'));
+    try {
+      db.prepare('UPDATE artifacts SET path=?').run(path.join(root,f.relative));
+      db.prepare('UPDATE attempts SET stdout_path=?,stderr_path=?').run(...f.logs.map(file=>path.join(root,path.relative(f.source,file))));
+    } finally {db.close();}
+  }
+  return root;
+}
+test('explicit absent historical root adopts only locator columns through canonical retained source bytes',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f),before=durable(f.target),sourceBytes=readFileSync(path.join(f.source,'catalog.sqlite'));
+  assert.equal((await adopt(f)).reason,'locator_mismatch');
+  const result=await adopt(f,{historicalLocatorRoots:[historical]});
+  assert.equal(result.status,'adopted',JSON.stringify(result));assert.equal(result.artifacts,1);assert.equal(result.logLocators,2);
+  assert.deepEqual(durable(f.target),before);assert.deepEqual(readFileSync(path.join(f.source,'catalog.sqlite')),sourceBytes);
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).status,'adopted');
+  renameSync(f.source,path.join(f.folder,'retained-original'));
+  const restored=new Catalog(await loadConfig({workspace:f.target}));
+  try{assert.equal(restored.readArtifact(f.digest).historical_path,'C:/opaque/original.exe');
+    const row=restored.database.prepare('SELECT stdout_path,stderr_path FROM attempts WHERE id=?').get(f.attemptId);
+    assert.equal(readFileSync(row.stdout_path,'utf8'),'opaque 0\n');assert.equal(readFileSync(row.stderr_path,'utf8'),'opaque 1\n');
+  }finally{restored.close();}
+});
+cliTest('closed CLI accepts bounded repeated explicit historical roots and rejects duplicates',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f),other=path.join(f.folder,'other-absent');
+  const result=invoke(f,['--historical-locator-root',historical,'--historical-locator-root',other]);
+  assert.equal(result.result.status,'adopted',JSON.stringify(result));assert.equal(result.exit,0);assert.equal(result.stderr,'');
+  const duplicate=invoke(f,['--historical-locator-root',historical,'--historical-locator-root',historical]);
+  assert.equal(duplicate.result.reason,'invalid_request');assert.equal(duplicate.exit,2);
+});
+test('historical alias must be absent at its leaf beneath existing ordinary parents and cannot overlap roots',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f),before=readFileSync(path.join(f.target,'catalog.sqlite'));
+  mkdirSync(historical);assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).reason,'file_unavailable');
+  renameSync(historical,path.join(f.folder,'present-stash'));
+  assert.equal((await adopt(f,{historicalLocatorRoots:[path.join(f.folder,'missing-parent','missing-leaf')]})).reason,'file_unavailable');
+  symlinkSync(path.join(f.folder,'present-stash'),historical,process.platform==='win32'?'junction':'dir');
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).reason,'file_unavailable');unlinkSync(historical);
+  const linked=path.join(f.folder,'linked-parent');symlinkSync(path.join(f.folder,'present-stash'),linked,process.platform==='win32'?'junction':'dir');
+  assert.equal((await adopt(f,{historicalLocatorRoots:[path.join(linked,'missing-leaf')]})).reason,'file_unavailable');unlinkSync(linked);
+  for(const roots of [[f.source],[path.join(f.source,'absent')],[f.folder],[historical,historical],Array(9).fill(historical),['relative'],null]) {
+    assert.equal((await adopt(f,{historicalLocatorRoots:roots})).reason,'invalid_request');
+  }
+  assert.deepEqual(readFileSync(path.join(f.target,'catalog.sqlite')),before);
+});
+test('alias file mismatch and ambiguous relative collisions retain catalog locators',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f),before=durable(f.target);
+  writeFileSync(path.join(f.target,f.relative),'wrong bytes');
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).reason,'artifact_mismatch');
+  cpSync(path.join(f.source,f.relative),path.join(f.target,f.relative));
+  writeFileSync(path.join(f.target,'attempts','fixture','stdout.log'),'wrong log');
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).reason,'log_mismatch');
+  cpSync(f.logs[0],path.join(f.target,'attempts','fixture','stdout.log'));
+  for(const workspace of [f.source,f.target]) {
+    const db=new DatabaseSync(path.join(workspace,'catalog.sqlite'));
+    try{db.prepare('INSERT INTO attempts SELECT ?,job_id,state,started_at,completed_at,exit_code,reason,resource_json,stdout_path,stderr_path FROM attempts WHERE id=?').run('collision',f.attemptId);}finally{db.close();}
+  }
+  for(const workspace of [f.source,f.target]) {
+    const db=new DatabaseSync(path.join(workspace,'catalog.sqlite'));
+    try{db.prepare('UPDATE attempts SET stdout_path=?,stderr_path=? WHERE id=?').run(...f.logs,'collision');}finally{db.close();}
+  }
+  const collisionBefore=readFileSync(path.join(f.target,'catalog.sqlite'));
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).reason,'locator_mismatch');
+  assert.deepEqual(readFileSync(path.join(f.target,'catalog.sqlite')),collisionBefore);
+  assert.equal(durable(f.target).artifacts[0].sha256,before.artifacts[0].sha256);
+});
+test('an absent historical root that appears during proof rejects before commit',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f);let calls=0;
+  const result=await adopt(f,{historicalLocatorRoots:[historical],observeStartup:async()=>{
+    if(++calls===3)mkdirSync(historical);return{schema:'uci_arena_evidence_startup_presence_v1',state:'absent'};
+  }});
+  assert.equal(result.reason,'file_unavailable');assert.equal(result.completion,'not_attempted');
+});
+test('denied and unknown historical filesystem observations never establish absent aliases',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f),native=fs.lstatSync;
+  // Exact filesystem-boundary falsifier, not a claim about native ACL behavior.
+  for(const code of ['EACCES','EPERM','EIO']) {
+    fs.lstatSync=filename=>{if(path.resolve(filename)===historical)throw Object.assign(new Error('PRIVATE_DIAGNOSTIC'),{code});return native(filename);};
+    syncBuiltinESMExports();
+    try{const result=await adopt(f,{historicalLocatorRoots:[historical]});
+      assert.equal(result.reason,'file_unavailable');assert.equal(result.completion,'not_attempted');
+    }finally{fs.lstatSync=native;syncBuiltinESMExports();}
+  }
+});
+test('historical alias does not weaken canonical legacy daemon or startup guards',async t=>{
+  const f=await fixture(t),historical=historicalLocators(f);legacyOwners(f);
+  for(const processProbe of [()=>({state:'present',identity:{...identity,pid:4652}}),()=>({state:'unverifiable'})]) {
+    assert.equal((await adopt(f,{historicalLocatorRoots:[historical],processProbe})).reason,'daemon_unverifiable');
+  }
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical],observeStartup:async()=>({schema:'uci_arena_evidence_startup_presence_v1',state:'unverifiable'})})).reason,'startup_not_absent');
+  assert.equal((await adopt(f,{historicalLocatorRoots:[historical]})).status,'adopted');
 });
