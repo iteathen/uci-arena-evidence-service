@@ -9,6 +9,13 @@ north_star: >
   exact UCI Arena runtime tools without acquiring their chess, UCI, referee,
   timing, or statistical authority.
 
+timing_policy_purpose: specs/timing_evidence_purpose_v1.yaml
+purpose_relationship: >
+  Qualified immutable population-derived timing policies are the production
+  direction. Current scheduling/qualification and runtime-v2 contracts are
+  implemented subsets; this direction does not invent analysis capabilities
+  or expand an existing policy's evidence support.
+
 hard_rules:
   - The service never imports UCI Arena, Book Forge, or Manager source.
   - Runtime executors are supplied through the typed legacy component or the explicitly admitted engine-owned JS v2 profile in evidence_runtime_v2.md.

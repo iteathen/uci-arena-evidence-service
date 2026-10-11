@@ -1,0 +1,95 @@
+meta:
+  spec_id: timing_evidence_purpose_v1
+  version: 1
+  status: active
+  owner: evidence_service_governance
+  reconciles: https://github.com/iteathen/uci-arena-evidence-service/pull/47
+
+purpose: >
+  Produce qualified, immutable timing-policy artifacts from trustworthy
+  completed-game populations through declared external runtime/analysis
+  capabilities. Scheduling, catalogs, profiles and qualification jobs support
+  this outcome; they do not themselves establish a timing law.
+
+current_implementation:
+  authority: specs/uci_arena_evidence_service_v1.yaml
+  additional_runtime: specs/evidence_runtime_v2.md
+  state: qualification_and_orchestration_subset
+  rules:
+    - Existing legacy timing-profile and optional engine-owned runtime-v2 contracts retain their exact meaning and compatibility.
+    - Current Vector is an independent JavaScript/Device-JS product over public cuda-js/Tensor/MCGS contracts; cancelled C++ chess/search is not a fallback or Vector qualification authority.
+    - Native generic SDK/process/referee helpers retain their independently published roles.
+    - This purpose does not assert a completed population-learning pipeline, a new analyzer, a supported policy threshold, or general engine strength.
+    - A policy already qualified by its owner retains only its declared runtime, hardware, clock and experimental support; service orchestration does not expand that support.
+
+production_direction:
+  stages:
+    - collect_identity_bound_completed_game_populations
+    - invoke_declared_temporal_value_and_useful_block_analysis
+    - compare_candidate_allocation_strategies
+    - freeze_candidate_identity_and_parameters
+    - qualify_on_independent_held_out_evidence
+    - publish_immutable_versioned_policy
+  rules:
+    - Missing required analyzer capabilities remain explicit external dependencies; the service does not recreate search or statistical algorithms.
+    - Discovery evidence and held-out qualification are distinct, and correlated observations are not silently treated as independent samples.
+    - A single game, move or position cannot establish useful-block thresholds, local-pressure effects or an allocation strategy.
+    - Small campaigns remain valid diagnostic or bounded qualification evidence rather than population-law authority.
+
+authority:
+  current_game_time:
+    owner: actual_game_consumer_and_downstream_move_time_runtime
+    rules:
+      - Actual original and remaining clocks, increment and declared protocol limits govern runtime feasibility and opportunity cost.
+      - No clock is inferred from a policy, evidence metadata, placeholder UCI option or diagnostic duration.
+  useful_blocks:
+    owner: qualified_policy_artifact
+    rules:
+      - A useful block is an evidence-supported additional elapsed-search opportunity in a declared regime, not an internal search batch.
+      - An unaffordable supported block does not authorize inventing a smaller supported block.
+      - Nonuniform thresholds, plateaus and unsupported regions remain explicit where the owner contract provides them.
+  allocation_strategy:
+    owner: qualified_policy_artifact_and_runtime_consumer
+    rules:
+      - Candidate strategies are experimental treatments until independently qualified; architecture chooses no universal multiplier or duration schedule.
+      - The consumer applies the qualified strategy to actual game facts within its declared support and hard bounds.
+  local_decision_pressure:
+    owner: declared_read_only_runtime_observation
+    examples: [decision_instability, candidate_ambiguity, stable_decisive_candidate]
+    rules:
+      - Large unstable separation and large stable separation remain distinguishable when material to an experiment.
+      - Universal centipawn gaps, easy-move percentages and complexity multipliers require population evidence rather than architectural assertion.
+      - Bounded live observations may support an already-qualified strategy; they are not live population learning or commands to search.
+
+one_way_boundaries:
+  - Search owns its attention, topology, queues, work, depth and move selection; timing never controls those mechanisms.
+  - The engine/search completed-result owner maintains an occupied bestmove memory slot and publishes updates continuously as progress completes, independently of timing's deadline.
+  - The move-time owner observes declared bounded search evidence and selects a bounded downstream memory-read/delivery deadline; it does not defer or request catch-up search-slot publication.
+  - At the deadline the consumer reads the already-completed compatible current-focus slot, including an available older completed slot while a newer update is in flight.
+  - The deadline requires no search wait, new evaluation, GPU readback, policy/profile reload or catch-up publication. Search progress and completed-slot updates continue independently.
+  - The service never polls active search to make the current move decision; profile/policy refresh remains between games.
+  - Population learning uses retained completed-game evidence. New policy generations affect future games only after explicit owner qualification/admission.
+  - Provider transport/API timing remains Bot-owned and separate from chess-thinking strategy.
+  - Manager may forward actual consumer clocks unchanged through declared UCI/profile bindings and project typed status; it does not calculate timing-policy allocations or qualification.
+  - Installer consumes opaque owner-declared artifacts and compatibility, without interpreting useful blocks, strategy parameters or chess clock pressure.
+
+clock_and_profile_admission:
+  rules:
+    - Runtime-v2 target identity, manifest inventory, clock_option_bindings and campaign request rules remain exactly those in evidence_runtime_v2.md.
+    - Explicit original initialTimeMs/incrementMs are distinct from a diagnostic timeMs budget and enter the engine-owned runner before readiness.
+    - Profile/policy refresh at a fresh-game boundary remains consumer-owned. A sealed experiment or active game retains its exact admitted profile/policy identity; the service does not hot-rewrite it.
+    - An unavailable, incompatible or readiness-rejected policy remains a failure within its owner contract; no silent policy-disable fallback grants qualification.
+
+applicability:
+  owner: runtime_move_resolution_consumer
+  rules:
+    - Only an actual exact-position legal move resolved by a declared book/tablebase policy can bypass search-time allocation.
+    - Hints, priors, WDL safety constraints and mere provider availability do not establish resolution.
+    - Non-search-resolved moves may remain causal whole-game observations but are not zero-time searched treatments.
+    - Deadline read/delivery below the next useful block is not evidence that a smaller useful block exists.
+
+qualification_limits:
+  - Preserve exact target/runtime/hardware/control, candidate/control options, provenance, clean resource intervals and incomplete/failed outcomes.
+  - Freeze discovery choices before held-out qualification; retain false-easy cases and failed predictions as evidence.
+  - Historical uci_time_profile_v3 execution/provider/deadline qualification is not silently reinterpreted as a new useful-block/strategy schema.
+  - New policy output schemas and capabilities require explicit versioned owner contracts, not filename or field-shape inference.

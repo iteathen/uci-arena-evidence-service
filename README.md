@@ -6,15 +6,28 @@ resource admission, evidence normalization, and qualified timing-profile
 publication. Chess legality and terminal state remain in the existing C++
 referee; the existing Node match runner owns UCI orchestration and statistics.
 
+The production direction is qualified, immutable timing-policy artifacts from
+identity-bound completed-game populations. Discovery, frozen candidate
+comparison and independent held-out qualification must remain distinct. Current
+scheduling and qualification machinery is a subset of that direction; this does
+not claim the full population-learning pipeline exists. See
+[timing-policy purpose](specs/timing_evidence_purpose_v1.yaml), which reconciles
+the unique governance work in historical [PR47](https://github.com/iteathen/uci-arena-evidence-service/pull/47).
+
 Node.js 24.15 or newer and the separately installed
-`uci_arena_evidence.runtime` component are required for queued jobs. The
+`uci_arena_evidence.runtime` component are required for legacy v1 queued jobs.
+An explicitly selected engine-owned [runtime-v2 capability](specs/evidence_runtime_v2.md)
+uses its own receipt/inventory-bound target instead. Current Vector is the
+independent JavaScript/Device-JS engine product; cancelled C++ chess/search is
+not a fallback. Independently published native referee and process helpers
+retain their generic roles. The
 daemon, catalog, scheduler, resource governor, startup
 integration, normalization pipeline, qualifier, and clocked match controller
 are Node.js. No Python process or adapter is used. Its only local Node
 dependencies are the product-neutral background-service runtime and
 time-profile contract packages, both pinned by the service lockfile.
 
-Set `UCI_ARENA_EVIDENCE_RUNTIME_ROOT` to the installed runtime-component root
+For legacy v1, set `UCI_ARENA_EVIDENCE_RUNTIME_ROOT` to the installed runtime-component root
 when the Manager has not injected that location. Before it constructs any
 queued adapter command, the service validates
 `contracts/evidence-runtime-contract.json`, the component identity and target,
