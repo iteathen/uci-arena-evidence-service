@@ -6,6 +6,16 @@ Universal engineering and design guidance comes from the account-global `AGENTS.
 
 UCI Arena Evidence Service is the standalone evidence-orchestration product. It owns scheduling, admission, resource isolation, qualification workflows, timing-profile generation, normalization, resumability, result catalogs, datasets/publication, daemon lifecycle, and service health/status.
 
+## Decision reasoning
+
+Before a substantive architecture, design, implementation-selection, or cross-component
+decision, read `reasoning/component_graph_v1.yaml` and the canonical suite graph at
+`iteathen/uci-arena-installer/reasoning/suite_graph_v1.yaml`.
+
+The graph requires explicit treatment of implicit assertions, evidence scope, and confidence.
+It does not grant Evidence Service live engine/search authority. Accepted Evidence specs and
+runtime contracts remain behavior authority; contradictions trigger explicit review.
+
 ## Local routing
 
 Before substantive work run:
