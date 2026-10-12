@@ -9,7 +9,7 @@ global_graph:
 
 imports:
   objectives: [G-O1, G-O2]
-  premises: [G-P1, G-P2, G-P3, G-P4, G-P6, G-P8, G-P9, G-P12, G-P13, G-P15, G-P17, G-P18, G-P19, G-P20, G-P23, G-P24, G-P25]
+  premises: [G-P1, G-P2, G-P3, G-P4, G-P6, G-P8, G-P9, G-P12, G-P13, G-P15, G-P17, G-P18, G-P19, G-P20, G-P23, G-P24, G-P25, G-P27, G-P28]
   targets: [G-T2, G-T4, G-T6, G-T8, G-T9, G-T13]
 
 local_objectives:
@@ -98,6 +98,18 @@ premises:
       that addresses the material confounds.
     confidence: 0.99
 
+  - id: E-P13
+    statement: >
+      Comparing many candidates, repeatedly inspecting intermediate results, or adaptively
+      stopping/selecting increases false-discovery and winner-selection risk unless the
+      analysis design explicitly accounts for that multiplicity or adaptivity.
+    confidence: 0.995
+  - id: E-P14
+    statement: >
+      Fixture, synthetic, simulated, portable, and native/live evidence classes are not
+      interchangeable; authority cannot be upgraded merely because the artifact shape matches.
+    confidence: 0.999
+
 implicit_assertions:
   - id: E-A1
     statement: >
@@ -176,6 +188,19 @@ implicit_assertions:
     derived_from: [E-P11, G-P25]
     confidence: 0.995
 
+  - id: E-A13
+    statement: >
+      Expanding the candidate search without accounting for multiple comparisons can make an
+      apparently strongest candidate a statistical selection artifact.
+    derived_from: [E-P13]
+    confidence: 0.995
+  - id: E-A14
+    statement: >
+      A fixture or simulated campaign can validate orchestration and contract logic but cannot
+      produce native/live timing or strength authority for deployment.
+    derived_from: [E-P14, G-P28]
+    confidence: 0.999
+
 implementation_targets:
   - {id: E-T1, name: identity_bound_population_collection, supports: [E-O1, G-T4]}
   - {id: E-T2, name: controlled_stratification_and_independence, supports: [E-O1]}
@@ -194,9 +219,9 @@ target_derivations:
   E-T2: [E-O1, E-P3, E-P10, E-P12, G-P17, G-P24]
   E-T3: [E-O1, E-P2, E-P9, G-P18]
   E-T4: [E-O2, E-P1, E-P5, E-P7, E-P11]
-  E-T5: [E-O2, E-P2, E-P7, E-P8, E-P9]
-  E-T6: [E-O2, E-P2, E-P7, E-P8, E-P9, E-P10]
-  E-T7: [E-O1, E-P6, E-P7, G-P19]
+  E-T5: [E-O2, E-P2, E-P7, E-P8, E-P9, E-P13]
+  E-T6: [E-O2, E-P2, E-P7, E-P8, E-P9, E-P10, E-P13, E-P14, G-P28]
+  E-T7: [E-O1, E-P6, E-P7, E-P14, G-P19, G-P28]
   E-T8: [E-O3, E-P4, G-P15, G-P20]
   E-T9: [E-O1, E-P2, E-P6, E-P9, E-P10]
   E-T10: [E-O1, E-O2, E-P4, E-P5, G-P23]
@@ -215,6 +240,8 @@ assertion_relevance:
   E-A10: [E-T1, E-T2, E-T7]
   E-A11: [E-T1, E-T6, E-T9]
   E-A12: [E-T4, E-T5, E-T7]
+  E-A13: [E-T5, E-T6, E-T7]
+  E-A14: [E-T6, E-T7, E-T9]
 
 dominance_relations:
   - {id: E-D1, stronger: E-T3, weaker: E-T6, context: publication_would_reuse_discovery_as_heldout, confidence: 0.999, consequence: critical}
