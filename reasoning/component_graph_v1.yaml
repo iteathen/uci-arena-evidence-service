@@ -38,8 +38,9 @@ premises:
     confidence: 0.999
   - id: E-P2
     statement: >
-      Discovery, candidate freezing, and independent held-out qualification are distinct
-      authorities and must not silently reuse the same evidence.
+      Discovery, candidate freezing, and held-out qualification provide distinct evidence
+      authorities only when the held-out evidence remains meaningfully independent from the
+      discovery and candidate-selection process.
     confidence: 0.999
   - id: E-P3
     statement: >
