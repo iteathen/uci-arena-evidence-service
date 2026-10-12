@@ -66,8 +66,8 @@ premises:
 
   - id: E-P7
     statement: >
-      Statistical non-rejection is not equivalence; an experiment must declare and support
-      the effect bounds it is entitled to rule out.
+      Statistical non-rejection is not equivalence; without declared and sufficiently
+      supported effect bounds, a non-rejection cannot rule out practically material differences.
     confidence: 0.999
   - id: E-P8
     statement: >
