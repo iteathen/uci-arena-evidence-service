@@ -62,6 +62,41 @@ premises:
       visible with truthful non-authority.
     confidence: 0.99
 
+  - id: E-P7
+    statement: >
+      Statistical non-rejection is not equivalence; an experiment must declare and support
+      the effect bounds it is entitled to rule out.
+    confidence: 0.999
+  - id: E-P8
+    statement: >
+      Selection among a finite tested candidate set establishes only relative support inside
+      that set and scope, not global optimality over untested policies.
+    confidence: 0.999
+  - id: E-P9
+    statement: >
+      Held-out evidence loses its independence for a candidate family once its results are
+      inspected and used to redesign or select the next candidate; subsequent claims require
+      fresh independent evidence or an explicitly modeled reuse procedure.
+    confidence: 0.995
+  - id: E-P10
+    statement: >
+      The evidence-generating distribution can change as engine, policy, opponent, opening,
+      time-control, hardware, or scheduler populations change, so historical support remains
+      scoped even when the artifact itself is immutable.
+    confidence: 0.99
+  - id: E-P11
+    statement: >
+      Proxy observations such as evaluations, timings, local search progress, or tactical
+      outcomes support only the claims validated for those measures; chess-strength claims
+      require downstream outcome evidence appropriate to the hypothesis.
+    confidence: 0.995
+  - id: E-P12
+    statement: >
+      Observational external games can reveal failures and generate hypotheses, but causal
+      qualification of a treatment normally requires controlled assignment or another design
+      that addresses the material confounds.
+    confidence: 0.99
+
 implicit_assertions:
   - id: E-A1
     statement: >
@@ -94,6 +129,52 @@ implicit_assertions:
     derived_from: [G-P4, E-P5]
     confidence: 0.98
 
+  - id: E-A6
+    statement: >
+      The selected winner of a candidate comparison is only the best supported tested
+      candidate, not evidence that an untested strategy cannot be better.
+    derived_from: [E-P8, G-P19]
+    confidence: 0.999
+  - id: E-A7
+    statement: >
+      An inconclusive comparison must remain inconclusive and cannot justify deleting a
+      capability, declaring strategies equivalent, or selecting the cheaper candidate as
+      though no performance difference exists.
+    derived_from: [E-P7, G-P19]
+    confidence: 0.999
+  - id: E-A8
+    statement: >
+      Once held-out results influence redesign, those observations are discovery history for
+      the successor and cannot remain its untouched final validation set.
+    derived_from: [E-P9, G-P18]
+    confidence: 0.995
+  - id: E-A9
+    statement: >
+      A large archive of uncontrolled Lichess games can be highly valuable for anomaly
+      discovery and external validity while still lacking causal authority for a specific
+      timing/search/book treatment.
+    derived_from: [E-P12, G-P2, G-P3]
+    confidence: 0.99
+  - id: E-A10
+    statement: >
+      Increasing sample count does not cure a biased opponent/opening/control distribution or
+      an uncontrolled treatment confound.
+    derived_from: [E-P10, G-P24]
+    confidence: 0.995
+  - id: E-A11
+    statement: >
+      A policy qualified for an old engine/evidence distribution may remain historically
+      valid while requiring fresh evidence before being treated as optimal for a materially
+      changed engine or competitive population.
+    derived_from: [E-P10, G-P6]
+    confidence: 0.99
+  - id: E-A12
+    statement: >
+      Better proxy metrics do not establish better chess strength unless the declared
+      experiment connects those metrics to downstream game outcomes.
+    derived_from: [E-P11, G-P25]
+    confidence: 0.995
+
 implementation_targets:
   - {id: E-T1, name: identity_bound_population_collection, supports: [E-O1, G-T4]}
   - {id: E-T2, name: controlled_stratification_and_independence, supports: [E-O1]}
@@ -106,6 +187,33 @@ implementation_targets:
   - {id: E-T9, name: preserve_raw_provenance_and_reproducibility, supports: [E-O1, G-T4]}
   - {id: E-T10, name: no_live_search_control, supports: [G-T6, G-T10]}
   - {id: E-T11, name: operator_visible_bounded_status_and_catalogs, supports: [E-O3, G-T9]}
+
+target_derivations:
+  E-T1: [E-O1, E-P1, E-P3, E-P10, E-P12]
+  E-T2: [E-O1, E-P3, E-P10, E-P12, G-P17, G-P24]
+  E-T3: [E-O1, E-P2, E-P9, G-P18]
+  E-T4: [E-O2, E-P1, E-P5, E-P7, E-P11]
+  E-T5: [E-O2, E-P2, E-P7, E-P8, E-P9]
+  E-T6: [E-O2, E-P2, E-P7, E-P8, E-P9, E-P10]
+  E-T7: [E-O1, E-P6, E-P7, G-P19]
+  E-T8: [E-O3, E-P4, G-P15, G-P20]
+  E-T9: [E-O1, E-P2, E-P6, E-P9, E-P10]
+  E-T10: [E-O1, E-O2, E-P4, E-P5, G-P23]
+  E-T11: [E-O3, E-P6, G-P20, G-P23]
+
+assertion_relevance:
+  E-A1: [E-T4, E-T5, E-T6]
+  E-A2: [E-T4, E-T5, E-T6]
+  E-A3: [E-T1, E-T6, E-T9]
+  E-A4: [E-T1, E-T2, E-T7]
+  E-A5: [E-T5, E-T10]
+  E-A6: [E-T5, E-T6]
+  E-A7: [E-T5, E-T6, E-T7]
+  E-A8: [E-T3, E-T5, E-T6, E-T9]
+  E-A9: [E-T1, E-T2, E-T5]
+  E-A10: [E-T1, E-T2, E-T7]
+  E-A11: [E-T1, E-T6, E-T9]
+  E-A12: [E-T4, E-T5, E-T7]
 
 dominance_relations:
   - {id: E-D1, stronger: E-T3, weaker: E-T6, context: publication_would_reuse_discovery_as_heldout, confidence: 0.999, consequence: critical}
