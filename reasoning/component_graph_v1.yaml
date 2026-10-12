@@ -1,0 +1,128 @@
+schema: uci_arena_component_reasoning_graph_v1
+graph_id: uci_arena_evidence_service
+version: 1
+status: initial_owner_directed
+component: uci_arena_evidence_service
+global_graph:
+  repository: iteathen/uci-arena-installer
+  path: reasoning/suite_graph_v1.yaml
+
+imports:
+  objectives: [G-O1, G-O2]
+  premises: [G-P1, G-P3, G-P4, G-P6, G-P9, G-P12, G-P13]
+  targets: [G-T2, G-T4, G-T6, G-T8, G-T9, G-T13]
+
+local_objectives:
+  - id: E-O1
+    statement: >
+      Produce trustworthy evidence that can distinguish real chess/runtime improvements from
+      noise, confounding, overfitting, and accidental correlation.
+    derived_from: [G-O1, G-T4]
+    confidence: 0.999
+  - id: E-O2
+    statement: >
+      Turn qualified completed-game populations into reproducible future policy/artifact
+      improvements without granting live control to the evidence service.
+    derived_from: [G-O1, G-T13]
+    confidence: 0.995
+  - id: E-O3
+    statement: >
+      Make long-running evidence production resumable, inspectable, and manageable for the
+      operator.
+    derived_from: [G-O2]
+    confidence: 0.96
+
+premises:
+  - id: E-P1
+    statement: A single game, move, or position cannot establish a population timing or strength law.
+    confidence: 0.999
+  - id: E-P2
+    statement: >
+      Discovery, candidate freezing, and independent held-out qualification are distinct
+      authorities and must not silently reuse the same evidence.
+    confidence: 0.999
+  - id: E-P3
+    statement: >
+      Correlated positions, openings, opponents, colors, controls, and repeated runtime
+      identities must not be counted as independent merely because they are separate rows.
+    confidence: 0.99
+  - id: E-P4
+    statement: >
+      Evidence collection and analysis can happen after games complete; same-game learning is
+      not required and can contaminate experimental authority.
+    confidence: 0.98
+  - id: E-P5
+    statement: >
+      Current live game clock and search applicability belong to the runtime consumer, while
+      Evidence can qualify future timing structure and allocation strategy.
+    confidence: 0.995
+  - id: E-P6
+    statement: >
+      Failed, incomplete, and negative results retain informational value and should remain
+      visible with truthful non-authority.
+    confidence: 0.99
+
+implicit_assertions:
+  - id: E-A1
+    statement: >
+      Selecting the smallest useful timing block answers a minimum-useful-quantum question,
+      not the optimal whole-game allocation question.
+    derived_from: [E-P1, E-P5, G-P8]
+    confidence: 0.999
+  - id: E-A2
+    statement: >
+      A timing artifact that cannot represent temporal value cannot faithfully implement an
+      architecture whose allocation strategy depends on temporal value.
+    derived_from: [G-P12, E-O2]
+    confidence: 0.999
+  - id: E-A3
+    statement: >
+      Qualification against one time control or runtime identity cannot be silently stretched
+      to another merely because the policy is clock-safe there.
+    derived_from: [G-P6, E-P2]
+    confidence: 0.999
+  - id: E-A4
+    statement: >
+      More samples do not improve confidence when they repeat the same underlying independent
+      unit or share an uncontrolled confound.
+    derived_from: [E-P3]
+    confidence: 0.98
+  - id: E-A5
+    statement: >
+      Evidence Service should orchestrate analysis through declared capabilities rather than
+      create a second chess/search/statistics authority merely to unblock a campaign.
+    derived_from: [G-P4, E-P5]
+    confidence: 0.98
+
+implementation_targets:
+  - {id: E-T1, name: identity_bound_population_collection, supports: [E-O1, G-T4]}
+  - {id: E-T2, name: controlled_stratification_and_independence, supports: [E-O1]}
+  - {id: E-T3, name: discovery_vs_heldout_separation, supports: [E-O1]}
+  - {id: E-T4, name: temporal_value_and_useful_block_inference, supports: [E-O2]}
+  - {id: E-T5, name: allocation_strategy_comparison, supports: [E-O2]}
+  - {id: E-T6, name: immutable_qualified_policy_publication, supports: [E-O2, G-T13]}
+  - {id: E-T7, name: truthful_failed_and_insufficient_authority, supports: [E-O1, G-T4]}
+  - {id: E-T8, name: bounded_resumable_background_scheduling, supports: [E-O3, G-T8]}
+  - {id: E-T9, name: preserve_raw_provenance_and_reproducibility, supports: [E-O1, G-T4]}
+  - {id: E-T10, name: no_live_search_control, supports: [G-T6, G-T10]}
+  - {id: E-T11, name: operator_visible_bounded_status_and_catalogs, supports: [E-O3, G-T9]}
+
+dominance_relations:
+  - {id: E-D1, stronger: E-T3, weaker: E-T6, context: publication_would_reuse_discovery_as_heldout, confidence: 0.999, consequence: critical}
+  - {id: E-D2, stronger: E-T2, weaker: E-T1, context: larger_population_would_overcount_correlated_units, confidence: 0.99, consequence: major}
+  - {id: E-D3, stronger: E-T7, weaker: E-T6, context: insufficient_or_failed_evidence_would_be_promoted_for_convenience, confidence: 0.999, consequence: critical}
+  - {id: E-D4, stronger: E-T10, weaker: E-T5, context: strategy_experiment_would_require_evidence_service_to_command_active_search, confidence: 0.99, consequence: major}
+  - {id: E-D5, stronger: E-T9, weaker: E-T8, context: scheduler_simplicity_would_destroy_reproducibility_or_failed_evidence, confidence: 0.97, consequence: major}
+
+importance_relations:
+  - {id: E-I1, more_important: E-T5, less_important: E-T4, context: useful_block_structure_already_established_but_allocation_underperforms, confidence: 0.94}
+  - {id: E-I2, more_important: E-T4, less_important: E-T5, context: minimum_useful_structure_is_unknown, confidence: 0.9}
+  - {id: E-I3, more_important: E-T2, less_important: E-T8, context: qualification_quality_vs_campaign_throughput, confidence: 0.97}
+
+exports:
+  - id: E-X1
+    statement: immutable qualified evidence and policy artifacts with exact support scope
+    supports_global: [G-T4, G-T13]
+  - id: E-X2
+    statement: explicit insufficient failed or diagnostic-only authority
+    supports_global: [G-T4, G-T9]
