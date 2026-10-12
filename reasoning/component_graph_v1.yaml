@@ -1,0 +1,366 @@
+schema: uci_arena_component_reasoning_graph_v1
+graph_id: uci_arena_evidence_service
+version: 1
+status: initial_owner_directed
+component: uci_arena_evidence_service
+concern_areas: [C03, C04, C06, C07, C08, C09, C10, C12]
+global_graph:
+  repository: iteathen/uci-arena-installer
+  path: reasoning/suite_graph_v1.yaml
+
+imports:
+  objectives: [G-O1, G-O2]
+  premises: [G-P1, G-P2, G-P3, G-P4, G-P6, G-P8, G-P9, G-P15, G-P17, G-P18, G-P19, G-P20, G-P23, G-P24, G-P25, G-P27, G-P28]
+  targets: [G-T2, G-T4, G-T6, G-T8, G-T9, G-T10, G-T13]
+
+local_objectives:
+  - id: E-O1
+    statement: >
+      Produce trustworthy evidence that can distinguish real chess/runtime improvements from
+      noise, confounding, overfitting, and accidental correlation.
+    derived_from: [G-O1, G-T4]
+    confidence: 0.999
+  - id: E-O2
+    statement: >
+      Turn qualified completed-game populations into reproducible future policy/artifact
+      improvements without granting live control to the evidence service.
+    derived_from: [G-O1, G-T13]
+    confidence: 0.995
+  - id: E-O3
+    statement: >
+      Make long-running evidence production resumable, inspectable, and manageable for the
+      operator.
+    derived_from: [G-O2]
+    confidence: 0.96
+
+premises:
+  - id: E-P1
+    statement: A single game, move, or position cannot establish a population timing or strength law.
+    confidence: 0.999
+  - id: E-P2
+    statement: >
+      Discovery, candidate freezing, and held-out qualification provide distinct evidence
+      authorities only when the held-out evidence remains meaningfully independent from the
+      discovery and candidate-selection process.
+    confidence: 0.999
+  - id: E-P3
+    statement: >
+      Correlated positions, openings, opponents, colors, controls, and repeated runtime
+      identities are not independent observations merely because they occupy separate rows.
+    confidence: 0.99
+  - id: E-P4
+    statement: >
+      Evidence collection and analysis can happen after games complete; same-game learning is
+      not required and can contaminate experimental authority.
+    confidence: 0.98
+  - id: E-P5
+    statement: >
+      Current live game clock and search applicability belong to the runtime consumer, while
+      Evidence can qualify future timing structure and allocation strategy.
+    confidence: 0.995
+  - id: E-P6
+    statement: >
+      Failed, incomplete, and negative results retain informational value but do not
+      establish the successful qualification that their passing counterparts might.
+    confidence: 0.99
+
+  - id: E-P7
+    statement: >
+      Statistical non-rejection is not equivalence; without declared and sufficiently
+      supported effect bounds, a non-rejection cannot rule out practically material differences.
+    confidence: 0.999
+  - id: E-P8
+    statement: >
+      Selection among a finite tested candidate set establishes only relative support inside
+      that set and scope, not global optimality over untested policies.
+    confidence: 0.999
+  - id: E-P9
+    statement: >
+      Held-out evidence loses its independence for a candidate family once its results are
+      inspected and used to redesign or select the next candidate; subsequent claims require
+      fresh independent evidence or an explicitly modeled reuse procedure.
+    confidence: 0.995
+  - id: E-P10
+    statement: >
+      The evidence-generating distribution can change as engine, policy, opponent, opening,
+      time-control, hardware, or scheduler populations change, so historical support remains
+      scoped even when the artifact itself is immutable.
+    confidence: 0.99
+  - id: E-P11
+    statement: >
+      Proxy observations such as evaluations, timings, local search progress, or tactical
+      outcomes support only the claims validated for those measures; chess-strength claims
+      require downstream outcome evidence appropriate to the hypothesis.
+    confidence: 0.995
+  - id: E-P12
+    statement: >
+      Observational external games can reveal failures and generate hypotheses, but causal
+      qualification of a treatment normally requires controlled assignment or another design
+      that addresses the material confounds.
+    confidence: 0.99
+
+  - id: E-P13
+    statement: >
+      Comparing many candidates, repeatedly inspecting intermediate results, or adaptively
+      stopping/selecting increases false-discovery and winner-selection risk unless the
+      analysis design explicitly accounts for that multiplicity or adaptivity.
+    confidence: 0.995
+  - id: E-P14
+    statement: >
+      Fixture, synthetic, simulated, portable, and native/live evidence classes are not
+      interchangeable; authority cannot be upgraded merely because the artifact shape matches.
+    confidence: 0.999
+
+premise_metadata:
+  E-P1: {kind: structural}
+  E-P2: {kind: structural}
+  E-P3: {kind: structural}
+  E-P4: {kind: material_risk}
+  E-P5: {kind: structural}
+  E-P6: {kind: structural}
+  E-P7: {kind: structural}
+  E-P8: {kind: structural}
+  E-P9: {kind: structural}
+  E-P10: {kind: empirical_regular}
+  E-P11: {kind: structural}
+  E-P12: {kind: structural}
+  E-P13: {kind: material_risk}
+  E-P14: {kind: structural}
+
+implicit_assertions:
+  - id: E-A1
+    statement: >
+      Selecting the smallest useful timing block answers a minimum-useful-quantum question,
+      not the optimal whole-game allocation question.
+    derived_from: [E-P1, E-P5, G-P8]
+    confidence: 0.999
+  - id: E-A2
+    statement: >
+      A timing artifact that cannot represent temporal value cannot faithfully implement an
+      architecture whose allocation strategy depends on temporal value.
+    derived_from: [E-O2, E-P5, E-P11]
+    confidence: 0.999
+  - id: E-A3
+    statement: >
+      Qualification against one time control or runtime identity cannot be silently stretched
+      to another merely because the policy is clock-safe there.
+    derived_from: [G-P6, E-P2]
+    confidence: 0.999
+  - id: E-A4
+    statement: >
+      More samples do not improve confidence when they repeat the same underlying independent
+      unit or share an uncontrolled confound.
+    derived_from: [E-P3]
+    confidence: 0.98
+  - id: E-A5
+    statement: >
+      Reimplementing producer-owned chess, search, or statistics semantics inside Evidence
+      Service would create competing authorities and weaken campaign interpretation.
+    derived_from: [G-P4, E-P5]
+    confidence: 0.98
+
+  - id: E-A6
+    statement: >
+      The selected winner of a candidate comparison is only the best supported tested
+      candidate, not evidence that an untested strategy cannot be better.
+    derived_from: [E-P8, G-P19]
+    confidence: 0.999
+  - id: E-A7
+    statement: >
+      An inconclusive comparison must remain inconclusive and cannot justify deleting a
+      capability, declaring strategies equivalent, or selecting the cheaper candidate as
+      though no performance difference exists.
+    derived_from: [E-P7, G-P19]
+    confidence: 0.999
+  - id: E-A8
+    statement: >
+      Once held-out results influence redesign, those observations are discovery history for
+      the successor and cannot remain its untouched final validation set.
+    derived_from: [E-P9, G-P18]
+    confidence: 0.995
+  - id: E-A9
+    statement: >
+      A large archive of uncontrolled Lichess games can be highly valuable for anomaly
+      discovery and external validity while still lacking causal authority for a specific
+      timing/search/book treatment.
+    derived_from: [E-P12, G-P2, G-P3]
+    confidence: 0.99
+  - id: E-A10
+    statement: >
+      Increasing sample count does not cure a biased opponent/opening/control distribution or
+      an uncontrolled treatment confound.
+    derived_from: [E-P10, G-P24]
+    confidence: 0.995
+  - id: E-A11
+    statement: >
+      A policy qualified for an old engine/evidence distribution may remain historically
+      valid while requiring fresh evidence before being treated as optimal for a materially
+      changed engine or competitive population.
+    derived_from: [E-P10, G-P6]
+    confidence: 0.99
+  - id: E-A12
+    statement: >
+      Better proxy metrics do not establish better chess strength unless the declared
+      experiment connects those metrics to downstream game outcomes.
+    derived_from: [E-P11, G-P25]
+    confidence: 0.995
+
+  - id: E-A13
+    statement: >
+      Expanding the candidate search without accounting for multiple comparisons can make an
+      apparently strongest candidate a statistical selection artifact.
+    derived_from: [E-P13]
+    confidence: 0.995
+  - id: E-A14
+    statement: >
+      A fixture or simulated campaign can validate orchestration and contract logic but cannot
+      produce native/live timing or strength authority for deployment.
+    derived_from: [E-P14, G-P28]
+    confidence: 0.999
+
+assertion_metadata:
+  E-A1: {inference: structural, boundary: "Minimum useful timing structure and optimal allocation remain separate empirical questions."}
+  E-A2: {inference: structural, boundary: "No particular policy schema is mandated; the representation simply must preserve every qualified input the strategy actually depends on."}
+  E-A3: {inference: structural, boundary: "Cross-control reuse can be valid when the policy is explicitly qualified for a broader declared support domain."}
+  E-A4: {inference: structural, boundary: "Correlated samples remain useful when dependence is modeled instead of counted as independent units."}
+  E-A5: {inference: structural, boundary: "Evidence may invoke declared external analysis capabilities; it need not be algorithmically ignorant."}
+  E-A6: {inference: structural, boundary: "Selecting among a finite candidate set remains legitimate when the claim is explicitly relative to that set."}
+  E-A7: {inference: structural, boundary: "An inconclusive result may still have information value and guide the next experiment."}
+  E-A8: {inference: structural, boundary: "Previously inspected evidence can be reused under an explicitly modeled sequential/adaptive procedure; it simply is not untouched held-out evidence."}
+  E-A9: {inference: structural, boundary: "External observational games remain genuine external-validity and anomaly evidence despite lacking treatment causality."}
+  E-A10: {inference: structural, boundary: "A narrow or biased sample can still answer a narrow question when its scope is explicit."}
+  E-A11: {inference: conditional, boundary: "Historical policies retain their original authority; fresh evidence is needed only for new optimality/generalization claims after material change."}
+  E-A12: {inference: structural, boundary: "Proxy metrics may support intermediate mechanism claims even when they do not establish strength."}
+  E-A13: {inference: risk_implication, boundary: "Multiplicity can be handled by preregistration, correction, sequential methods, or other justified analysis; no single correction is mandated."}
+  E-A14: {inference: structural, boundary: "Synthetic and fixture campaigns remain valuable for orchestration, schema, and analysis-path validation."}
+
+implementation_targets:
+  - id: E-T1
+    name: collect_exactly_contextualized_evidence_populations
+    statement: >
+      Accumulate completed-game and runtime evidence with the exact identities, controls,
+      treatments, outcomes, and experimental context required to interpret each sample.
+    supports: [E-O1, G-T4]
+  - id: E-T2
+    name: preserve_independence_representativeness_and_stratification
+    statement: >
+      Represent sampling, grouping, dependence, strata, confounds, and target populations well
+      enough that statistical conclusions match the evidence actually collected.
+    supports: [E-O1]
+  - id: E-T3
+    name: preserve_independent_final_validation
+    statement: >
+      Keep candidate discovery/selection evidence distinct from the evidence used to make a
+      final generalization or qualification claim unless an explicit adaptive design accounts for reuse.
+    supports: [E-O1]
+  - id: E-T4
+    name: infer_useful_timing_structure_and_temporal_value
+    statement: >
+      Determine evidence-supported additional search-time opportunities and where their
+      downstream chess value changes across qualified regimes without assuming smooth or fixed value.
+    supports: [E-O2]
+  - id: E-T5
+    name: compare_candidate_allocation_strategies_fairly
+    statement: >
+      Compare genuinely different timing/allocation strategies under controlled populations,
+      uncertainty, and multiplicity handling appropriate to the claim.
+    supports: [E-O2]
+  - id: E-T6
+    name: produce_reproducible_qualified_future_policy_artifacts
+    statement: >
+      Publish compact, versioned future-policy authority only after the declared discovery,
+      validation, identity, resource, and statistical gates pass, retaining exact support scope.
+    supports: [E-O2, G-T13]
+  - id: E-T7
+    name: preserve_failure_inconclusive_and_insufficient_truth
+    statement: >
+      Retain failed, interrupted, contaminated, underpowered, and inconclusive outcomes without
+      upgrading them into success, equivalence, or qualification.
+    supports: [E-O1, G-T4]
+  - id: E-T8
+    name: run_long_evidence_work_without_disrupting_foreground_use
+    statement: >
+      Make evidence collection/analysis resumable, resource-aware, interruptible, and
+      recoverable without materially degrading foreground Arena or engine activity.
+    supports: [E-O3, G-T8]
+  - id: E-T9
+    name: preserve_reproducible_evidence_provenance
+    statement: >
+      Retain enough immutable/raw provenance, identity, analysis configuration, and historical
+      outcome to reproduce or audit the authority of published conclusions.
+    supports: [E-O1, G-T4]
+  - id: E-T10
+    name: keep_evidence_learning_out_of_active_search_control
+    statement: >
+      Learn from retained observations and qualify future policies without making the evidence
+      service a live controller of search attention, topology, work, or move selection.
+    supports: [G-T6, G-T10]
+  - id: E-T11
+    name: make_evidence_state_understandable_and_bounded
+    statement: >
+      Expose collection, target, job, dataset, qualification, and failure state in a bounded
+      form operators can understand without fabricating provider-private detail.
+    supports: [E-O3, G-T9]
+
+target_semantics:
+  status: problem_characterized
+  solution_selected_by_reasoning_graph: false
+
+causal_relations:
+  - {id: E-C1, cause: E-T1, effect: E-T2, relation: evidence_input_enabler, confidence: 0.96}
+  - {id: E-C2, cause: E-T2, effect: E-T5, relation: validity_preserver, confidence: 0.98}
+  - {id: E-C3, cause: E-T3, effect: E-T6, relation: generalization_authority_enabler, confidence: 0.99}
+  - {id: E-C4, cause: E-T4, effect: E-T5, relation: candidate_structure_enabler, confidence: 0.95}
+  - {id: E-C5, cause: E-T5, effect: E-T6, relation: selection_enabler, confidence: 0.97}
+  - {id: E-C6, cause: E-T7, effect: E-T6, relation: false_authority_preventer, confidence: 0.99}
+  - {id: E-C7, cause: E-T9, effect: E-T6, relation: reproducibility_enabler, confidence: 0.98}
+  - {id: E-C8, cause: E-T10, effect: G-T10, relation: perturbation_boundary_preserver, confidence: 0.96}
+
+target_derivations:
+  E-T1: [E-O1, E-P1, E-P3, E-P10, E-P12]
+  E-T2: [E-O1, E-P3, E-P10, E-P12, G-P17, G-P24]
+  E-T3: [E-O1, E-P2, E-P9, G-P18]
+  E-T4: [E-O2, E-P1, E-P5, E-P7, E-P11]
+  E-T5: [E-O2, E-P2, E-P7, E-P8, E-P9, E-P13]
+  E-T6: [E-O2, E-P2, E-P7, E-P8, E-P9, E-P10, E-P13, E-P14, G-P28]
+  E-T7: [E-O1, E-P6, E-P7, E-P14, G-P19, G-P28]
+  E-T8: [E-O3, E-P4, G-P15, G-P20]
+  E-T9: [E-O1, E-P2, E-P6, E-P9, E-P10]
+  E-T10: [E-O1, E-O2, E-P4, E-P5, G-P23]
+  E-T11: [E-O3, E-P6, G-P20, G-P23]
+
+assertion_relevance:
+  E-A1: [E-T4, E-T5, E-T6]
+  E-A2: [E-T4, E-T5, E-T6]
+  E-A3: [E-T1, E-T6, E-T9]
+  E-A4: [E-T1, E-T2, E-T7]
+  E-A5: [E-T5, E-T10]
+  E-A6: [E-T5, E-T6]
+  E-A7: [E-T5, E-T6, E-T7]
+  E-A8: [E-T3, E-T5, E-T6, E-T9]
+  E-A9: [E-T1, E-T2, E-T5]
+  E-A10: [E-T1, E-T2, E-T7]
+  E-A11: [E-T1, E-T6, E-T9]
+  E-A12: [E-T4, E-T5, E-T7]
+  E-A13: [E-T5, E-T6, E-T7]
+  E-A14: [E-T6, E-T7, E-T9]
+
+dominance_relations:
+  - {id: E-D1, stronger: E-T3, weaker: E-T6, context: publication_would_reuse_discovery_as_heldout, strength: strict_necessary_condition, basis: [E-P2, E-P9, E-A8], confidence: 0.999, consequence: critical}
+  - {id: E-D2, stronger: E-T2, weaker: E-T1, context: larger_population_would_overcount_correlated_units, strength: strict_necessary_condition, basis: [E-P3, E-A4, E-A10], confidence: 0.99, consequence: major}
+  - {id: E-D3, stronger: E-T7, weaker: E-T6, context: insufficient_or_failed_evidence_would_be_promoted_for_convenience, strength: strict_necessary_condition, basis: [E-P6, E-P7, E-P14, E-A7, E-A14], confidence: 0.999, consequence: critical}
+  - {id: E-D4, stronger: E-T10, weaker: E-T5, context: strategy_experiment_would_require_evidence_service_to_command_active_search, strength: strong_conditional, basis: [E-P4, E-P5, E-A5], confidence: 0.99, consequence: major}
+  - {id: E-D5, stronger: E-T9, weaker: E-T8, context: scheduler_simplicity_would_destroy_reproducibility_or_failed_evidence, strength: strong_conditional, basis: [E-P6, E-P9, E-A8], confidence: 0.97, consequence: major}
+
+importance_relations:
+  - {id: E-I1, more_important: E-T5, less_important: E-T4, context: useful_block_structure_already_established_but_allocation_underperforms, confidence: 0.94}
+  - {id: E-I2, more_important: E-T4, less_important: E-T5, context: minimum_useful_structure_is_unknown, confidence: 0.9}
+  - {id: E-I3, more_important: E-T2, less_important: E-T8, context: qualification_quality_vs_campaign_throughput, confidence: 0.97}
+
+exports:
+  - id: E-X1
+    statement: immutable qualified evidence and policy artifacts with exact support scope
+    supports_global: [G-T4, G-T13]
+  - id: E-X2
+    statement: explicit insufficient failed or diagnostic-only authority
+    supports_global: [G-T4, G-T9]
