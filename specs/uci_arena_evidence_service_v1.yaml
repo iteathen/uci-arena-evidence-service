@@ -69,10 +69,23 @@ runtime:
         exact lock-owning daemon through the same verified uninstall path, so
         upgrading from an older provider cannot race its delayed Job Object
         teardown.
-      - Startup uninstall reads the owned daemon lock before requesting stop,
-        waits at most two seconds for that exact process to exit, and fails
-        closed instead of racing payload replacement or a new daemon. After
-        verified exit it removes only a lock still owned by that dead process.
+      - Startup uninstall reads the owned daemon lock before requesting stop.
+        On Windows it qualifies the public native process_instance_stop_v1
+        capability for an exact same-platform owner, requests Task End for the
+        launcher, and stops the daemon through the full-identity public SDK
+        operation. Task End failure is admitted only by a closed typed positive
+        startup-absence observation; raw exit codes and localized messages do
+        not prove absence. Legacy PID records receive no termination authority
+        and require positive native absence.
+      - Native incarnation stop and independent exact-process exit/reuse proof
+        share one shrinking monotonic interval of at most two seconds. Stopped,
+        absent or reused native outcomes still require a positive independent
+        exit/reuse observation inside that interval. Deferred, unverifiable,
+        malformed or late observations fail closed. Registration deletion
+        follows daemon exit proof; denial or unknown deletion failure preserves
+        recovery records unless typed observation positively proves absence.
+        After successful teardown it removes only the unchanged retained lock
+        owned by the dead process, without starting another identity budget.
       - Startup status reports registration presence, current-configuration
         agreement, and live daemon activity as separate fields.
       - Windows process-instance observation uses only the explicitly selected,
@@ -375,6 +388,8 @@ validation:
     - linux_systemd_user_unit_contract_test
     - startup_install_active_and_current_configuration_contract_tests
     - startup_uninstall_bounded_exact_daemon_exit_contract_test
+    - windows_native_owned_incarnation_stop_and_pid_reuse_contract_tests
+    - startup_uninstall_typed_task_absence_and_recovery_record_preservation
     - manager_api_startup_recover_preserves_registration
     - stale_daemon_lock_with_reused_live_pid_is_reclaimed
     - exact_live_daemon_owner_is_never_displaced

@@ -61,10 +61,10 @@ if (process.argv.includes("--write")) {
   writeFileSync(lockPath, `${JSON.stringify({
     schema: "uci_arena_upstream_vendor_lock_v1",
     source_repository: "iteathen/uci-arena-engine",
-    source_commit: "a535772f818eba76473e4f931dcfc7b764f0c6c5",
+    source_commit: "ed21a5361b7dc80ac36fa27d66f9f81018b34305",
     packages: {
-      "@uci-arena/background-service-runtime": "1.2.0",
-      "@uci-arena/time-profile-contract": "1.2.0",
+      "@uci-arena/background-service-runtime": "1.4.0",
+      "@uci-arena/time-profile-contract": "1.5.0",
     },
     files,
   }, null, 2)}\n`);
@@ -75,9 +75,9 @@ if (process.argv.includes("--write")) {
 const lock = JSON.parse(readFileSync(lockPath, "utf8"));
 if (lock.schema !== "uci_arena_upstream_vendor_lock_v1"
     || lock.source_repository !== "iteathen/uci-arena-engine"
-    || lock.source_commit !== "a535772f818eba76473e4f931dcfc7b764f0c6c5"
-    || lock.packages?.["@uci-arena/background-service-runtime"] !== "1.2.0"
-    || lock.packages?.["@uci-arena/time-profile-contract"] !== "1.2.0"
+    || lock.source_commit !== "ed21a5361b7dc80ac36fa27d66f9f81018b34305"
+    || lock.packages?.["@uci-arena/background-service-runtime"] !== "1.4.0"
+    || lock.packages?.["@uci-arena/time-profile-contract"] !== "1.5.0"
     || Object.keys(lock.packages ?? {}).length !== 2
     || JSON.stringify(lock.files) !== JSON.stringify(files)) {
   throw new Error("vendored upstream package closure does not match its exact lock");

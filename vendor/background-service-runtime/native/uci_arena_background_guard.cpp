@@ -1,6 +1,9 @@
 #include <windows.h>
 #include <powrprof.h>
 #include "process_instance_query.hpp"
+#include "process_instance_stop.hpp"
+#include <fcntl.h>
+#include <io.h>
 
 #include <algorithm>
 #include <charconv>
@@ -78,7 +81,7 @@ int probe() {
         << ",\"input_idle_ms\":" << input_idle_ms
         << ",\"cooling_mode\":" << cooling_mode
         << ",\"processor_limit_percent\":" << processor_limit_percent
-        << ",\"capabilities\":[\"process_instance_query_v1\"]"
+        << ",\"capabilities\":[\"process_instance_query_v1\",\"process_instance_stop_v1\"]"
         << "}\n";
     return 0;
 }
@@ -293,6 +296,24 @@ int supervise(DWORD process_id, const std::string& heartbeat_file, std::uint64_t
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 2 && std::string_view(argv[1]) == "--stop-process-instance") {
+        using namespace uci_arena::background_service_runtime;
+        const auto begun = GetTickCount64();
+        if (_setmode(_fileno(stdin), _O_BINARY) == -1) return 2;
+        std::string input;
+        char byte = 0;
+        while (std::cin.get(byte)) {
+            if (input.size() >= 131128) return 2;
+            input.push_back(byte);
+        }
+        ProcessStopRequest request;
+        if (!std::cin.eof() || !parse_process_stop_request(input, request)) return 2;
+        const auto state = stop_process_instance(request.pid, request.creation_ticks,
+            request.executable, begun + request.timeout_ms);
+        std::cout << "{\"schema\":\"uci_arena_process_instance_stop_v1\",\"state\":\""
+            << process_stop_state_name(state) << "\"}\n";
+        return std::cout.good() ? 0 : 2;
+    }
     if (argc == 2 && std::string_view(argv[1]) == "--probe") return probe();
     if (argc == 3 && std::string_view(argv[1]) == "--query-process-instance") {
         const std::string_view input(argv[2]);
@@ -322,7 +343,7 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
-    std::cerr << "Usage: uci_arena_background_guard --probe | --query-process-instance <pid> | --apply-process-profile <pid> --efficiency-cores <0..2> | "
+    std::cerr << "Usage: uci_arena_background_guard --probe | --query-process-instance <pid> | --stop-process-instance (bounded identity on stdin) | --apply-process-profile <pid> --efficiency-cores <0..2> | "
         "--supervise <pid> --heartbeat <path> --stale-seconds <seconds>\n";
     return 2;
 }

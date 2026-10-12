@@ -1,0 +1,24 @@
+{
+  "schema": "uci_arena_native_process_instance_stop_contract_v1",
+  "capability": "process_instance_stop_v1",
+  "operation": "--stop-process-instance",
+  "identity_contract": "./process-instance-query-contract.json",
+  "timeout_ms": 2000,
+  "maximum_response_bytes": 4096,
+  "maximum_request_bytes": 131128,
+  "response_schema": "uci_arena_process_instance_stop_v1",
+  "response_fields": ["schema", "state"],
+  "states": ["stopped", "absent", "reused", "unverifiable", "deferred"],
+  "native_stdin": "UTF-8 PID LF start_token LF timeout_ms LF executable_path LF then EOF",
+  "executable_comparison": "exact_utf8",
+  "termination_exit_code": 70,
+  "rules": [
+    "One OS process handle binds identity inspection, termination, and positive exit wait.",
+    "stopped requires the matched handle to signal after termination; request acknowledgment alone is insufficient.",
+    "absent means admitted PID could not be opened with ERROR_INVALID_PARAMETER or the held handle was already signaled.",
+    "reused means start token or executable path differs; neither mismatch authorizes termination.",
+    "unverifiable means identity, access, transport, or native operation could not be established; never infer absence.",
+    "deferred means the deadline ended without positive exit proof; termination may already have occurred.",
+    "The caller owns authority for the identity and lifecycle budget. This operation does not stop descendants or discover processes."
+  ]
+}

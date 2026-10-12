@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import * as contract from "../src/index.mjs";
 
 import {
   PROFILE_SCHEMA,
@@ -20,9 +21,191 @@ import {
   validateStoredProfile,
 } from "../src/index.mjs";
 
+function searchedRegimeFixture(directory, version = TIME_POLICY_VERSION) {
+  const executable = path.join(directory, "scoped-engine.exe"); writeFileSync(executable, "scoped fixture");
+  const configuration = { searchCore: "mcgs", threads: 2, rootWorkers: 1, splitDepth: 2, searchGraphMb: 64, mcgsCpuctPermille: 1500, mcgsOutstandingBatches: 2, mcgsBookPriorBlendPermille: 0, mcgsTimePolicy: REQUIRED_MCGS_TIME_POLICY, batchSize: 32, batchWaitUs: 150, provider: "cpu", backgroundSearch: false, nnSpeculation: false, ownBook: false, ponderOption: true, moveOverheadMs: 300, iterativeTimeController: false, appliedTimeProfileReserveUs: 0, appliedBackupEmitReserveUs: 1000, iterationForecastScalePermille: 1000, extraEngineOptions: { ModelBackend: "onnx", SyzygyManifest: "fixture.manifest", SyzygyProbeThreads: "4" } };
+  const status = { timing_contract_version: TIME_POLICY_VERSION, model_loaded: true, model_id: "scoped_model_v1", model_fingerprint: "101", adapter_id: "scoped_adapter_v1", provider_requested: "cpu", provider_effective: "cpu", provider_numeric_fingerprint: "202", hardware_driver_fingerprint: "303", onnx_runtime_version: "fixture", search_core_configured: "mcgs", threads_configured: 2, root_workers_configured: 1, split_depth_configured: 2, search_graph_mb_configured: 64, mcgs_cpuct_permille_configured: 1500, mcgs_outstanding_batches_configured: 2, mcgs_book_prior_blend_permille_configured: 0, mcgs_time_policy_configured: REQUIRED_MCGS_TIME_POLICY, batch_size_configured: 32, batch_size_effective: 32, batch_wait_us_configured: 150, batch_wait_us_effective: 150, background_search: false, opening_book_enabled: false, ponder_option_configured: true, move_overhead_ms_configured: 300, time_profile_provider_reserve_us: 0, time_profile_backup_emit_reserve_us: 1000, time_profile_iteration_forecast_scale_permille: 1000 };
+  const uciIdLines = ["id name UCI Arena Engine"], uciOptionLines = ["option name OwnBook type check default true"];
+  status.timing_contract_version = version;
+  const identity = buildProfileIdentity(status, { idLines: uciIdLines, optionLines: uciOptionLines }, engineCommandIdentity({ engine: executable, engineArgs: [], cwd: directory }), configuration);
+  const gates = Object.fromEntries("legal_moves nonterminal_null_moves controller_disabled provider_timing_captured provider_service_reserve_valid applied_provider_service_reserve_covered applied_backup_emit_reserve_covered p99_deadline_overshoot_passed maximum_deadline_overshoot_passed passed mcgs_root_coverage_passed mcgs_policy_only_fallback_passed mcgs_graph_population_passed mcgs_async_overlap_passed mcgs_single_owner_passed mcgs_low_budget_fallback_passed mcgs_deterministic_fallback_passed mcgs_completion_integrity_passed mcgs_temporal_policy_passed mcgs_deadline_tail_telemetry_passed".split(" ").map(key => [key, true]));
+  const profile = { schema: PROFILE_SCHEMA, qualified: true, gates, predictive_controller: { enabled_by_profile: false, default_enabled: false }, identity, identity_sha256: sha256Object(identity), calibration: { provider_batch_reserve_us: 77000, backup_emit_reserve_us: 2000, iteration_forecast_scale_permille: 1000 }, applicability: { move_overhead_ms: { minimum: 250, maximum: 1500, tested_values: [250, 650, 700, 1500] } } };
+  return { profile, status, executable, engineArgs: [], cwd: directory, uciIdLines, uciOptionLines, configuration };
+}
+
+const HISTORICAL_NATIVE_VERSION = "persistent_mcgs_relative_clock_temporal_v4";
+const RETENTION_NATIVE_VERSION = "persistent_mcgs_relative_clock_temporal_v5";
+
+function continuousProfileFixture(directory) {
+  const input = searchedRegimeFixture(directory, RETENTION_NATIVE_VERSION);
+  const cases = ["startpos", "complex_kiwipete", "forced_response", "low_budget_startpos", "relative_clock_surplus"];
+  input.profile = { ...input.profile, schema: "uci_time_profile_v4",
+    qualification_regime: "continuous_mcgs_provider_deadline_v1",
+    qualification: { repetitions_per_case: 30, cases, authority: {
+      predictive_controller_promotion: false, provider_default_tuning: false, strength_promotion: false,
+      allocation_strategy: false, minimum_useful_blocks: false, adaptive_timing: false } },
+    permissions: { provider_safety_qualified: true, forecast_shadow_qualified: true, adaptive_play_qualified: false },
+    samples: cases.flatMap(case_id => [250, 650, 700, 1500].flatMap(move_overhead_ms =>
+      Array.from({ length: 30 }, (_, index) => ({ case_id, move_overhead_ms,
+        repetition: index,
+        temperature: index === 0 ? "cold_process" : "warm_process",
+        timing_applicability: case_id === "forced_response" ? "non_search_resolved" : "search_derived" })))),
+    gates: { ...input.profile.gates, ...Object.fromEntries([
+      "continuous_case_population_passed", "continuous_focus_candidates_passed", "continuous_publication_fence_passed",
+      "continuous_live_resource_bounds_passed", "continuous_joined_completion_passed", "continuous_normal_close_passed",
+      "continuous_search_work_passed", "continuous_async_provider_work_passed", "continuous_temporal_compatibility_passed",
+    ].map(name => [name, true])), mcgs_policy_only_fallback_passed: false, mcgs_single_owner_passed: false,
+      mcgs_low_budget_fallback_passed: false, mcgs_deterministic_fallback_passed: false },
+  };
+  return input;
+}
+
+test("explicit continuous profile qualifies its own gates and keeps historical schema/API scope", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "time-continuous-v4-"));
+  try {
+    assert.equal(contract.CONTINUOUS_TIME_PROFILE_SCHEMA, "uci_time_profile_v4");
+    assert.equal(PROFILE_SCHEMA, "uci_time_profile_v3");
+    const input = continuousProfileFixture(directory);
+    assert.equal(validateStoredProfile(input.profile).schema, "uci_time_profile_v4");
+    assert.equal(timingProfilePermissions(input.profile).provider_safety_qualified, true);
+    assert.equal(validateProfileRuntimeSnapshot(input).accepted, true);
+    assert.throws(() => contract.validateHistoricalSearchedRegimeRuntimeSnapshot(input), /requires v3/);
+    assert.equal(contract.validateContinuousSearchedRegimeRuntimeSnapshot(input).accepted, true);
+    const historical = searchedRegimeFixture(directory);
+    assert.throws(() => contract.validateContinuousSearchedRegimeRuntimeSnapshot(historical), /requires v4/);
+    input.status.opening_book_enabled = true; input.configuration.ownBook = true;
+    const accepted = contract.validateContinuousSearchedRegimeRuntimeSnapshot(input);
+    assert.equal(accepted.schema, "uci_time_profile_continuous_searched_regime_runtime_status_v1");
+    assert.equal(accepted.searched_regime_timing_authority_match, true);
+    assert.equal(accepted.whole_runtime_timing_authority_match, false);
+    const applied = { ...input, configuration: { ...input.configuration, appliedTimeProfileReserveUs: 77000, appliedBackupEmitReserveUs: 2000 },
+      status: { ...input.status, time_profile_provider_reserve_us: 77000, time_profile_backup_emit_reserve_us: 2000 } };
+    assert.equal(contract.validateAppliedContinuousSearchedRegimeTimeProfileReserve(applied).applied, true);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("continuous profile rejects incomplete population, false gates and unsupported authority", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "time-continuous-invalid-"));
+  try {
+    const input = continuousProfileFixture(directory);
+    for (const mutate of [
+      p => { p.qualification_regime = "guessed"; }, p => { p.qualification.repetitions_per_case = 29; },
+      p => { p.samples.pop(); }, p => { p.samples[0].temperature = "warm_process"; },
+      p => { p.samples[2] = structuredClone(p.samples[1]); },
+      p => { p.samples[0].case_id = "unknown"; }, p => { p.samples[0].timing_applicability = "unknown"; },
+      p => { p.qualification.authority.minimum_useful_blocks = true; }, p => { p.permissions.adaptive_play_qualified = true; },
+      p => { p.identity.time_policy_version = HISTORICAL_NATIVE_VERSION; p.identity_sha256 = sha256Object(p.identity); },
+    ]) {
+      const bad = structuredClone(input.profile); mutate(bad);
+      assert.throws(() => validateStoredProfile(bad));
+    }
+    for (const gate of Object.keys(input.profile.gates).filter(name => name.startsWith("continuous_"))) {
+      const bad = structuredClone(input.profile); bad.gates[gate] = false;
+      assert.equal(timingProfilePermissions(bad).provider_safety_qualified, false);
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+for (const version of [HISTORICAL_NATIVE_VERSION, RETENTION_NATIVE_VERSION]) {
+  test(`profile identity preserves native ${version} and accepts only that runtime`, () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), "time-native-version-"));
+    try {
+      const input = searchedRegimeFixture(directory, version);
+      assert.equal(input.profile.identity.time_policy_version, version);
+      assert.equal(input.profile.identity.search_contract_fingerprint,
+        contract.searchContractFingerprint(input.profile.identity));
+      assert.equal(validateStoredProfile(input.profile).identity.time_policy_version, version);
+      assert.equal(validateProfileRuntimeSnapshot(input).accepted, true);
+      assert.equal(contract.validateHistoricalSearchedRegimeRuntimeSnapshot(input).accepted, true);
+      const other = version === HISTORICAL_NATIVE_VERSION ? RETENTION_NATIVE_VERSION : HISTORICAL_NATIVE_VERSION;
+      const mismatch = { ...input, status: { ...input.status, timing_contract_version: other } };
+      assert.throws(() => validateProfileRuntimeSnapshot(mismatch), /identity mismatch/);
+      assert.throws(() => contract.validateHistoricalSearchedRegimeRuntimeSnapshot(mismatch), /identity mismatch/);
+      const applied = { ...input.status, time_profile_provider_reserve_us: 77000,
+        time_profile_backup_emit_reserve_us: 2000 };
+      assert.equal(validateAppliedTimeProfileReserve(input.profile, applied).applied, true);
+      assert.throws(() => validateAppliedTimeProfileReserve(input.profile,
+        { ...applied, timing_contract_version: other }), /timing_contract_version/);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+}
+
+test("unknown or missing native versions fail closed for construction and consumption", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "time-unknown-version-"));
+  try {
+    const input = searchedRegimeFixture(directory, HISTORICAL_NATIVE_VERSION);
+    for (const version of [undefined, null, "", "persistent_mcgs_relative_clock_temporal_v6", 5]) {
+      const status = { ...input.status, timing_contract_version: version };
+      assert.throws(() => buildProfileIdentity(status,
+        { idLines: input.uciIdLines, optionLines: input.uciOptionLines },
+        engineCommandIdentity({ engine: input.executable }), input.configuration), /timing_contract_version/);
+      assert.throws(() => validateProfileRuntimeSnapshot({ ...input, status }), /timing_contract_version/);
+      assert.throws(() => validateAppliedTimeProfileReserve(input.profile, {
+        ...status, time_profile_provider_reserve_us: 77000, time_profile_backup_emit_reserve_us: 2000,
+      }), /timing_contract_version/);
+      const identity = { ...input.profile.identity, time_policy_version: version };
+      assert.throws(() => validateStoredProfile({ ...input.profile, identity,
+        identity_sha256: sha256Object(identity) }), /time policy/);
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("explicit searched-regime API preserves actual book configuration and old exact rejection", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "time-scoped-regime-"));
+  try {
+    assert.equal(typeof contract.validateHistoricalSearchedRegimeRuntimeSnapshot, "function");
+    assert.equal(typeof contract.validateAppliedSearchedRegimeTimeProfileReserve, "function");
+    const input = searchedRegimeFixture(directory);
+    input.status.opening_book_enabled = true; input.configuration.ownBook = true;
+    input.configuration.extraEngineOptions = { ...input.configuration.extraEngineOptions, OwnBook: "true", BookFile: "actual/book.bin", BookStatsFile: "actual/book.stats", BookPolicyFile: "actual/book.policy" };
+    const before = canonicalJson(input);
+    assert.throws(() => validateProfileRuntimeSnapshot(input), /identity mismatch/);
+    const accepted = contract.validateHistoricalSearchedRegimeRuntimeSnapshot(input);
+    assert.equal(accepted.schema, "uci_time_profile_searched_regime_runtime_status_v1");
+    assert.equal(accepted.accepted, true);
+    assert.equal(accepted.validation_scope, "historical_searched_regime");
+    assert.equal(accepted.searched_regime_timing_authority_match, true);
+    assert.equal(accepted.whole_runtime_timing_authority_match, false);
+    assert.equal(accepted.configured_opening_book_enabled, true);
+    assert.equal(accepted.qualified_opening_book_enabled, false);
+    assert.equal("timing_authority_match" in accepted, false);
+    assert.equal(canonicalJson(input), before, "caller input/profile bytes must not be mutated");
+    const applied = { ...input, configuration: { ...input.configuration, appliedTimeProfileReserveUs: 77000, appliedBackupEmitReserveUs: 2000 }, status: { ...input.status, time_profile_provider_reserve_us: 77000, time_profile_backup_emit_reserve_us: 2000 } };
+    assert.equal(contract.validateAppliedSearchedRegimeTimeProfileReserve(applied).applied, true);
+    assert.throws(() => contract.validateAppliedSearchedRegimeTimeProfileReserve(input), /not applied/);
+    for (const mutate of [x => { x.configuration.ownBook = false; }, x => { x.configuration.mcgsBookPriorBlendPermille = 1; }, x => { x.status.mcgs_book_prior_blend_permille_configured = 1; }, x => { x.configuration.extraEngineOptions.ModelBackend = "different"; }, x => { x.configuration.extraEngineOptions.SyzygyManifest = "different"; }, x => { x.status.provider_numeric_fingerprint = "999"; }, x => { x.profile.identity.search.opening_book = true; }, x => { x.configuration.extraEngineOptions.ModelLeafEvalMaxPly = "1"; }]) {
+      const bad = structuredClone(input); mutate(bad);
+      assert.throws(() => contract.validateHistoricalSearchedRegimeRuntimeSnapshot(bad));
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("canonical JSON is order-independent", () => {
   assert.equal(canonicalJson({ z: 1, a: { y: 2, b: 3 } }),
     canonicalJson({ a: { b: 3, y: 2 }, z: 1 }));
+});
+
+test("searched-regime validation binds actual Ponder and qualified transport envelope", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "time-scoped-transport-"));
+  try {
+    const input = searchedRegimeFixture(directory);
+    input.configuration.ownBook = true; input.status.opening_book_enabled = true;
+    input.configuration.moveOverheadMs = 650; input.status.move_overhead_ms_configured = 650;
+    const accepted = contract.validateHistoricalSearchedRegimeRuntimeSnapshot(input);
+    assert.equal(accepted.ponder_option, true);
+    assert.equal(accepted.move_overhead_ms, 650);
+    assert.deepEqual(accepted.move_overhead_envelope, input.profile.applicability.move_overhead_ms);
+    for (const mutate of [
+      x => { x.configuration.ponderOption = false; }, x => { delete x.configuration.ponderOption; },
+      x => { x.status.ponder_option_configured = false; }, x => { delete x.status.ponder_option_configured; },
+      x => { x.profile.identity.search.ponder_option = false; }, x => { delete x.profile.identity.search.ponder_option; },
+      x => { x.status.move_overhead_ms_configured = 250; }, x => { delete x.status.move_overhead_ms_configured; },
+      x => { x.configuration.moveOverheadMs = 1501; x.status.move_overhead_ms_configured = 1501; },
+    ]) {
+      const bad = structuredClone(input); mutate(bad);
+      assert.throws(() => contract.validateHistoricalSearchedRegimeRuntimeSnapshot(bad));
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test("profile validation fails closed before identity use", () => {

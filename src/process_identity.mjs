@@ -1,17 +1,20 @@
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import processQueryContract from "@uci-arena/background-service-runtime/process-instance-query-contract" with { type: "json" };
+import processStopContract from "@uci-arena/background-service-runtime/process-instance-stop-contract" with { type: "json" };
 
 export const PROCESS_INSTANCE_IDENTITY_SCHEMA = processQueryContract.identity_schema;
 let cachedCurrentIdentity = null;
 
 let windowsQuery = null;
+let windowsStop = null;
 
 // Composition qualifies the explicitly selected native dependency before any
 // Windows identity consumer runs. This does not start its supervisor.
 export async function configureProcessIdentityProbe(helper) {
   if (process.platform !== "win32") return;
   windowsQuery = null;
+  windowsStop = null;
   cachedCurrentIdentity = null;
   const probe = await helper.probe();
   if (!Array.isArray(probe?.capabilities)
@@ -20,6 +23,31 @@ export async function configureProcessIdentityProbe(helper) {
     throw new Error("native process instance query capability is unavailable");
   }
   windowsQuery = helper.queryProcessInstanceSync.bind(helper);
+  if (probe.capabilities.includes(processStopContract.capability)
+      && typeof helper.stopProcessInstanceSync === "function") {
+    windowsStop = helper.stopProcessInstanceSync.bind(helper);
+  }
+}
+
+export function requireProcessStopCapability() {
+  if (process.platform !== 'win32' || !windowsStop) {
+    throw new Error('native process instance stop capability is unavailable');
+  }
+}
+
+export function stopProcessInstance(identity, { timeoutMs = processStopContract.timeout_ms } = {}) {
+  requireProcessStopCapability();
+  const expected = processIdentityFromJson(identity);
+  if (!expected || expected.platform !== 'win32') throw new Error('invalid Windows daemon incarnation');
+  const result = windowsStop(expected, { timeoutMs });
+  if (!result || typeof result !== 'object' || Array.isArray(result)
+      || Object.keys(result).length !== processStopContract.response_fields.length
+      || !processStopContract.response_fields.every(field => Object.hasOwn(result, field))
+      || result.schema !== processStopContract.response_schema
+      || !processStopContract.states.includes(result.state)) {
+    return { schema: processStopContract.response_schema, state: 'unverifiable' };
+  }
+  return result;
 }
 
 function normalizedExecutable(identity) {

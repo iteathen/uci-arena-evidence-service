@@ -160,6 +160,13 @@ never copied, rewritten, or treated as newly qualified for a different runtime.
 
 ## Startup
 
+The prepared 0.3.20 source is an incomplete repair candidate. Its ordinary
+Windows uninstall path consumes the new exact-incarnation stop capability,
+but its manifest still declares startup-control v1. Installer upgrades from
+0.3.19 therefore still select that old installed controller. The staged v3
+replacement bridge and its qualification are pending; this candidate must not
+be published or used to claim that the upgrade defect is repaired.
+
 Windows registers a per-user Task Scheduler logon task through the existing
 generic windowless launcher:
 
@@ -172,9 +179,21 @@ node src/cli.mjs startup uninstall
 Install first drains any prior registration and exact lock-owning daemon, then
 reports success only after the task matches the current package and
 configuration and the replacement daemon is active. Status reports registration,
-configuration agreement, and activity independently. Uninstall waits up to two
-seconds for the exact lock-owning daemon to exit and removes only its dead lock;
-this prevents repair or upgrade from racing a replacement daemon.
+configuration agreement, and activity independently. Windows uninstall uses the
+qualified public native helper to stop the exact lock-owning daemon incarnation;
+Task Scheduler's launcher stop request alone is insufficient. Native stop and
+independent exit/reuse proof share the unchanged two-second budget. PID reuse
+never authorizes stopping the replacement process. Legacy PID-only records
+receive no termination authority and require positive native absence.
+
+Missing task registration is admitted through the closed typed startup-presence
+observer. Access denial, unknown Task End/deletion failures, missing stop
+capability, malformed identities, deferred stop and late exit evidence fail
+closed and preserve recovery records. Registration is deleted only after daemon
+exit proof; the retained lock is removed only if its complete contents still
+match the retired owner. These service fixtures and owned-child native tests
+provide internal qualification; installed Task Scheduler upgrade/uninstall
+qualification belongs to the signed provider release and suite lifecycle run.
 
 Linux installs a `systemd --user` unit with low CPU/I/O weight:
 

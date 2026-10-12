@@ -12,7 +12,9 @@ import {
   probeProcessInstance,
   processIdentityFromJson,
   processInstanceIsCurrent,
+  requireProcessStopCapability,
   sameProcessInstance,
+  stopProcessInstance,
 } from "./process_identity.mjs";
 
 import { daemonOwnerFromRecord, readDaemonRecord } from "./daemon_owner_record.mjs";
@@ -212,10 +214,10 @@ async function waitForDaemonActive(config, timeoutMs = 5_000) {
 
 async function removeDeadDaemonLock(config, expected) {
   if (!expected?.pid) return;
-  if (expected.identity && processInstanceIsCurrent(expected.identity)) return;
   const filename = path.join(config.paths.locks, daemonLockName);
   const current = await readDaemonOwner(config);
-  if (!current || current.raw !== expected.raw) return;
+  if (!current) return;
+  if (current.raw !== expected.raw) throw new Error('Evidence daemon ownership changed during teardown');
   const retired = `${filename}.retired-${process.pid}-${randomUUID()}`;
   try {
     await rename(filename, retired);
@@ -223,6 +225,54 @@ async function removeDeadDaemonLock(config, expected) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
+}
+
+// The record and stop capability are admitted before a caller changes startup
+// authority. Both launcher teardown and staged replacement use this one owner.
+export async function prepareDaemonShutdown(config, { now = () => performance.now() } = {}) {
+  const owner = await readDaemonOwner(config);
+  if (owner?.identity) {
+    if (owner.identity.platform !== process.platform) throw new Error('Evidence daemon ownership is from another platform');
+    if (process.platform === 'win32') requireProcessStopCapability();
+  }
+  let verified = false;
+  const verifyOwner = async () => {
+    const current = await readDaemonOwner(config);
+    if (current && (!owner || current.raw !== owner.raw)) {
+      throw new Error('Evidence daemon ownership changed during teardown');
+    }
+  };
+  return {
+    verifyOwner,
+    async stop() {
+      if (!owner) { verified = true; return; }
+      const deadline = now() + 2000;
+      const remaining = () => Math.floor(deadline - now());
+      if (!owner.identity) {
+        const budget = remaining();
+        const observed = budget > 0 ? probeProcessInstance(owner.pid, { timeoutMs: budget }) : null;
+        verified = observed?.state === 'absent' && now() <= deadline;
+      } else {
+        if (process.platform === 'win32') {
+          const budget = remaining();
+          const result = budget > 0 ? stopProcessInstance(owner.identity, { timeoutMs: budget }) : null;
+          if (!result || !['stopped', 'absent', 'reused'].includes(result.state) || remaining() < 1) {
+            throw new Error(`Evidence daemon ${owner.pid} stop is ${result?.state ?? 'deferred'}`);
+          }
+        }
+        const budget = remaining();
+        verified = budget > 0 && await waitForProcessExit(owner.pid, {
+          identity: owner.identity, timeoutMs: budget, now,
+        });
+      }
+      if (!verified) throw new Error(`Evidence daemon ${owner.pid} did not stop within two seconds`);
+    },
+    async retire() {
+      if (!verified) throw new Error('Evidence daemon exit is not verified');
+      await verifyOwner();
+      await removeDeadDaemonLock(config, owner);
+    },
+  };
 }
 
 function systemdQuote(value) {
@@ -343,26 +393,30 @@ async function installWindows(config) {
   return status;
 }
 
-async function uninstallWindows(config) {
-  const daemon = await readDaemonOwner(config);
+async function uninstallWindows(config, options = {}) {
+  const execute = options.executeImpl ?? execFileAsync;
+  const shutdown = await prepareDaemonShutdown(config, options);
   try {
-    await execFileAsync("schtasks.exe", ["/End", "/TN", windowsTaskName], {
-      windowsHide: true,
-      timeout: 10_000,
-    });
-  } catch {}
-  if (daemon?.pid && !await waitForProcessExit(daemon.pid, { identity: daemon.identity })) {
-    throw new Error(`Evidence daemon ${daemon.pid} did not stop within two seconds`);
-  }
-  await removeDeadDaemonLock(config, daemon);
-  try {
-    await execFileAsync("schtasks.exe", ["/Delete", "/TN", windowsTaskName, "/F"], {
+    await execute("schtasks.exe", ["/End", "/TN", windowsTaskName], {
       windowsHide: true,
       timeout: 10_000,
     });
   } catch (error) {
-    if (error.code !== 1) throw error;
+    const presence = await offlineStartupPresence(config, { execute });
+    if (presence.state !== 'absent') throw new Error('Evidence startup launcher stop is unverifiable', { cause: error });
   }
+  await shutdown.stop();
+  await shutdown.verifyOwner();
+  try {
+    await execute("schtasks.exe", ["/Delete", "/TN", windowsTaskName, "/F"], {
+      windowsHide: true,
+      timeout: 10_000,
+    });
+  } catch (error) {
+    const presence = await offlineStartupPresence(config, { execute });
+    if (presence.state !== 'absent') throw new Error('Evidence startup registration deletion is unverifiable', { cause: error });
+  }
+  await shutdown.retire();
   await rm(path.join(config.workspace, "startup-task.json"), { force: true });
   return { platform: "windows", installed: false, taskName: windowsTaskName };
 }
@@ -487,8 +541,8 @@ export async function recoverStartup(config, {
   };
 }
 
-export async function uninstallStartup(config) {
-  if (process.platform === "win32") return uninstallWindows(config);
+export async function uninstallStartup(config, options = {}) {
+  if (process.platform === "win32") return uninstallWindows(config, options);
   if (process.platform === "linux") return uninstallLinux(config);
   throw new Error(`startup registration is unsupported on ${process.platform}`);
 }
