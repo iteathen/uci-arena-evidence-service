@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync, existsSync, lstatSync, realpathSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, unlinkSync, symlinkSync, renameSync, existsSync, lstatSync, realpathSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -96,6 +96,37 @@ test('fresh evidence configuration resolves only inventoried file arguments and 
  assert.deepEqual(target.launch.arguments,fresh.engine.arguments);
  fresh.uci_options.OriginalTime='00';
  assert.throws(()=>renderInstallerConfiguration(context),/clock baseline/i);
+});
+test('evidence composition preserves only explicitly selected validated resources while regenerating bindings',t=>{
+ const{context}=freshInstallerFixture(t);mkdirSync(context.workspace);
+ const existing={schema:'uci_arena_evidence_service_config_v1',workspace:context.workspace,
+  engine:path.resolve('obsolete-engine.exe'),activeModelPointer:path.resolve('obsolete-target.json'),
+  resources:{minimumFreeWorkspaceGb:25,maximumUsedCpuPercent:15}};
+ writeFileSync(path.join(context.workspace,'manager-config.json'),JSON.stringify(existing));
+ const result=renderInstallerConfiguration(context).configuration;
+ assert.deepEqual(result.resources,existing.resources);
+ assert.notEqual(result.engine,existing.engine);assert.notEqual(result.activeModelPointer,existing.activeModelPointer);
+ existing.resources.minimumFreeWorkspaceGb=0;
+ writeFileSync(path.join(context.workspace,'manager-config.json'),JSON.stringify(existing));
+ assert.throws(()=>renderInstallerConfiguration(context),/resources.minimumFreeWorkspaceGb/);
+});
+for(const[label,create]of[
+ ['oversized',file=>writeFileSync(file,Buffer.alloc(1048577,32))],
+ ['nonregular',file=>mkdirSync(file)],
+ ['invalid UTF-8',file=>writeFileSync(file,Buffer.from([255,255]))],
+])test(`existing Evidence resource policy rejects ${label} input`,t=>{
+ const{context}=freshInstallerFixture(t);mkdirSync(context.workspace);
+ create(path.join(context.workspace,'manager-config.json'));
+ assert.throws(()=>renderInstallerConfiguration(context));
+});
+test('existing Evidence resource policy rejects an owned linked workspace before file admission',t=>{
+ const{context,root}=freshInstallerFixture(t);mkdirSync(context.workspace);
+ writeFileSync(path.join(context.workspace,'manager-config.json'),JSON.stringify({schema:'uci_arena_evidence_service_config_v1',resources:{minimumFreeWorkspaceGb:25}}));
+ const target=path.join(root,'state-real');renameSync(context.workspace,target);
+ symlinkSync(target,context.workspace,process.platform==='win32'?'junction':'dir');
+ try{assert.throws(()=>renderInstallerConfiguration(context),/linked ancestor/);}
+ finally{unlinkSync(context.workspace);}
+ assert.equal(JSON.parse(readFileSync(path.join(target,'manager-config.json'))).resources.minimumFreeWorkspaceGb,25);
 });
 
 test('v2 campaign clock declaration maps original parameters into ephemeral role options, not target baseline',t=>{

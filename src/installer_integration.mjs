@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import { lstatSync, openSync, closeSync, readFileSync, readSync } from 'node:fs';
+import { lstatSync, fstatSync, openSync, closeSync, readFileSync, readSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 import { validateStoredProfile } from '../vendor/time-profile-contract/src/index.mjs';
 import { admitRuntimeTarget } from './runtime_v2_binding.mjs';
+import { resolveConfig, resourceOptionNames } from './config.mjs';
 
 const MAXIMUM_CONTEXT_BYTES = 1024 * 1024;
 const MAXIMUM_PROFILE_BYTES = 16 * 1024 * 1024;
@@ -48,6 +49,42 @@ function readBoundedJson(filename, maximumBytes, label) {
     throw new Error(`${label} is not a bounded regular file`);
   }
   return JSON.parse(readFileSync(absolute, 'utf8'));
+}
+
+function existingResourceOptions(workspace) {
+  const filename=path.join(workspace,'manager-config.json');
+  const inspect=()=>{
+    let cursor=path.parse(filename).root;
+    for(const part of path.relative(cursor,filename).split(path.sep).filter(Boolean)) {
+      cursor=path.join(cursor,part);
+      if(lstatSync(cursor).isSymbolicLink())throw new Error('existing Evidence configuration has a linked ancestor');
+    }
+    const status=lstatSync(filename,{bigint:true});
+    if(!status.isFile()||status.size<2n||status.size>BigInt(MAXIMUM_CONTEXT_BYTES))
+      throw new Error('existing Evidence configuration is not a bounded regular file');
+    return status;
+  };
+  let before;
+  try{before=inspect();}catch(error){if(error.code==='ENOENT')return undefined;throw error;}
+  const identity=s=>[s.dev,s.ino,s.birthtimeNs,s.size,s.mtimeNs,s.ctimeNs];
+  const fd=openSync(filename,'r');let document;
+  try{
+    if(!isDeepStrictEqual(identity(fstatSync(fd,{bigint:true})),identity(before)))
+      throw new Error('existing Evidence configuration changed during admission');
+    const bytes=Buffer.alloc(MAXIMUM_CONTEXT_BYTES+1);let length=0,count;
+    while(length<bytes.length&&(count=readSync(fd,bytes,length,bytes.length-length,null))>0)length+=count;
+    if(length<2||length>MAXIMUM_CONTEXT_BYTES
+      ||!isDeepStrictEqual(identity(fstatSync(fd,{bigint:true})),identity(before))
+      ||!isDeepStrictEqual(identity(inspect()),identity(before)))
+      throw new Error('existing Evidence configuration changed or exceeded its bound');
+    document=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes.subarray(0,length)));
+  }finally{closeSync(fd);}
+  requireObject(document,'existing Evidence configuration');
+  resolveConfig(document,{configFile:filename,workspace});
+  if(document.resources===undefined)return undefined;
+  requireObject(document.resources,'existing Evidence resources');
+  return Object.fromEntries(resourceOptionNames.filter(key=>Object.hasOwn(document.resources,key))
+    .map(key=>[key,structuredClone(document.resources[key])]));
 }
 
 function freshManagedLaunch(fresh, profile, root, manifest) {
@@ -142,6 +179,7 @@ export function renderInstallerConfiguration(context) {
     throw new Error('unsupported installer context');
   }
   const workspace = requireAbsolutePath(context.workspace, 'workspace');
+  const resources=existingResourceOptions(workspace);
   const bindings = requireObject(context.bindings, 'bindings');
   const locators = requireObject(context.locators ?? {}, 'locators');
   if(bindings.engine_configuration!==undefined&&bindings.engine_launch_profile===undefined)
@@ -169,7 +207,7 @@ export function renderInstallerConfiguration(context) {
     target.launch=structuredClone(admitted.runtimeBinding.launch);
     if(admitted.runtimeBinding.clock_option_bindings)target.clock_option_bindings=structuredClone(admitted.runtimeBinding.clock_option_bindings);
     const pointer={schema:'arena_installed_active_evidence_target_v2',target};
-    return {schema:'arena_provider_install_result_v1',schema_version:1,configuration:{schema:'uci_arena_evidence_service_config_v1',workspace,
+    return {schema:'arena_provider_install_result_v1',schema_version:1,configuration:{schema:'uci_arena_evidence_service_config_v1',workspace,...(resources?{resources}:{}),
       activeModelPointer:path.join(workspace,'active-evidence-target.json'),profileImports:[],engine:admitted.enginePath},
       generated_documents:[{path:'active-evidence-target.json',document:pointer}]};
   }
@@ -180,6 +218,7 @@ export function renderInstallerConfiguration(context) {
   const configuration = {
     schema: 'uci_arena_evidence_service_config_v1',
     workspace,
+    ...(resources?{resources}:{}),
     runtimeRoot: bindings.evidence_runtime_root,
     activeModelPointer,
     runtimeModelsRoot: path.join(workspace, 'runtime-models'),

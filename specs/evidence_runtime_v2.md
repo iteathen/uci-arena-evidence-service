@@ -120,3 +120,12 @@ the service does not reconstruct snapshot authority or infer strength from them.
 Present invalid fresh input fails composition; missing fresh input retains
 the inventoried factory-profile compatibility route. This source amendment
 does not claim protected release qualification or installed acceptance.
+
+The renderer also preserves only explicitly persisted resource options from a
+bounded regular existing provider configuration, validated through the same
+provider configuration resolver used by runtime loading. Defaults remain
+unchanged. Linked ancestors, file substitution, changed/oversized input and
+invalid UTF-8/JSON/configuration fail before composition. Engine/target/native
+helper/runtime/attestation bindings are regenerated; existing configuration
+does not become new release or evidence authority. This lets a valid operator
+disk floor remain effective through update and public Installer verification.
