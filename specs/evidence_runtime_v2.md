@@ -106,3 +106,26 @@ a typed active target without reconstructing model identity. This selected
 cohort does not restrict generic service targets. Signed Windows publication
 and reproducibility remain provider-workflow authority; packaging fixtures do
 not substitute for that evidence.
+
+Service 0.3.20 additionally admits optional `engine_configuration` through the
+Installer's generic fresh dependency-configuration source. Its object must
+match the same inventoried portable launch's component/root, adapter,
+executable, arguments, working directory, conservative enabled state, null
+expected runtime and clock declaration. Inventoried component-file arguments
+may resolve to absolute paths; other argument values remain exact. Pinned
+RequireTimingPolicy/file/digest presence and values retain immutable authority.
+The existing runtime target validator still owns scalar bounds, clock baseline
+and exact inventory. Producer-generated Book options are forwarded opaquely;
+the service does not reconstruct snapshot authority or infer strength from them.
+Present invalid fresh input fails composition; missing fresh input retains
+the inventoried factory-profile compatibility route. This source amendment
+does not claim protected release qualification or installed acceptance.
+
+The renderer also preserves only explicitly persisted resource options from a
+bounded regular existing provider configuration, validated through the same
+provider configuration resolver used by runtime loading. Defaults remain
+unchanged. Linked ancestors, file substitution, changed/oversized input and
+invalid UTF-8/JSON/configuration fail before composition. Engine/target/native
+helper/runtime/attestation bindings are regenerated; existing configuration
+does not become new release or evidence authority. This lets a valid operator
+disk floor remain effective through update and public Installer verification.

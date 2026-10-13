@@ -78,6 +78,8 @@ const defaults = {
   },
 };
 
+export const resourceOptionNames = Object.freeze(Object.keys(defaults.resources));
+
 function merge(base, override) {
   const result = { ...base };
   for (const [key, value] of Object.entries(override ?? {})) {
@@ -138,12 +140,16 @@ function validate(config) {
 export async function loadConfig({ configFile, workspace } = {}) {
   assertSupportedNode();
   let loaded = {};
-  let directory = packageRoot;
   if (configFile) {
     const filename = path.resolve(configFile);
     loaded = JSON.parse(await readFile(filename, "utf8"));
-    directory = path.dirname(filename);
   }
+  return resolveConfig(loaded, { configFile, workspace });
+}
+
+export function resolveConfig(loaded = {}, { configFile, workspace } = {}) {
+  assertSupportedNode();
+  const directory = configFile ? path.dirname(path.resolve(configFile)) : packageRoot;
   const config = merge(structuredClone(defaults), loaded);
   config.configFile = configFile ? path.resolve(configFile) : null;
   const environmentRuntimeRoot = process.env.UCI_ARENA_EVIDENCE_RUNTIME_ROOT?.trim();

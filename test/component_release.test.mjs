@@ -16,9 +16,11 @@ import {
   validateWindowsRuntimeOwnership,
 } from "../tools/release/component_release.mjs";
 
-test('campaign clock repair is a new service patch with recursively retained owned helper',()=>{
+test('current service release identity retains its owned campaign clock helper',()=>{
  const pkg=JSON.parse(readFileSync(new URL('../package.json',import.meta.url))),lock=JSON.parse(readFileSync(new URL('../package-lock.json',import.meta.url)));
- assert.equal(pkg.version,'0.3.19');assert.equal(lock.version,pkg.version);assert.equal(lock.packages[''].version,pkg.version);
+ const contract=JSON.parse(readFileSync(new URL('../contracts/service-contract.json',import.meta.url)));
+ assert.match(pkg.version,/^\d+\.\d+\.\d+$/u);assert.equal(contract.component_version,pkg.version);
+ assert.equal(lock.version,pkg.version);assert.equal(lock.packages[''].version,pkg.version);
  const definition=JSON.parse(readFileSync(new URL('../release/components/evidence-service.json',import.meta.url)));
  assert.deepEqual(definition.include.find(row=>row.source==='src'),{source:'src',target:'services/evidence-service/src'});
  const helper=readFileSync(new URL('../src/runtime_clock_options.mjs',import.meta.url),'utf8');assert.match(helper,/export function bindCampaignClockOptions/u);
@@ -136,8 +138,10 @@ test("provider release proves independent target-scoped native reproducibility",
   );
   assert.deepEqual(
     definition.installer_integration.dependency_bindings.map((binding) => binding.name),
-    ["evidence_runtime_root", "engine_component_manifest", "engine_launch_profile"],
+    ["engine_configuration", "evidence_runtime_root", "engine_component_manifest", "engine_launch_profile"],
   );
+  assert.deepEqual(definition.installer_integration.dependency_bindings[0],
+    {name:"engine_configuration",component_id:"uci_arena.vector",source:"configuration",required:false});
   assert.equal(definition.installer_integration.startup_control.entrypoint, "cli");
   assert.equal(
     definition.installer_integration.startup_control.result.envelope,

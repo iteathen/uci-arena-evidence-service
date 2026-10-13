@@ -48,6 +48,7 @@
     "workspace_placement": "product_data",
     "configure_when_disabled": false,
     "dependency_bindings": [
+      {"name": "engine_configuration", "component_id": "uci_arena.vector", "source": "configuration", "required": false},
       {"name": "evidence_runtime_root", "component_id": "uci_arena.vector", "source": "active_root", "required": true},
       {"name": "engine_component_manifest", "component_id": "uci_arena.vector", "source": "component_path", "path": "arena-component.json", "required": true},
       {"name": "engine_launch_profile", "component_id": "uci_arena.vector", "source": "entrypoint", "entrypoint": "uci_launch_profile", "required": true}

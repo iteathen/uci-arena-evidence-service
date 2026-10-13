@@ -69,8 +69,10 @@ runtime:
         exact lock-owning daemon through the same verified uninstall path, so
         upgrading from an older provider cannot race its delayed Job Object
         teardown.
-      - Startup uninstall reads the owned daemon lock before requesting stop,
-        waits at most two seconds for that exact process to exit, and fails
+      - Startup uninstall reads the owned daemon lock before requesting stop.
+        Windows waits at most ten seconds for delayed Job Object teardown of
+        that exact owned process; the Linux/default process-exit wait remains
+        two seconds. It fails
         closed instead of racing payload replacement or a new daemon. After
         verified exit it removes only a lock still owned by that dead process.
       - Startup status reports registration presence, current-configuration
@@ -84,7 +86,11 @@ runtime:
         There is no PowerShell identity fallback, prewarm, or supervisor-start
         coupling. Linux retains its procfs process-birth identity.
       - Native identity requests preserve the default two-second bound and
-        consume the caller's shrinking 1..2000 ms exit budget. Persisted Windows
+        consume min(2000 ms, the caller's shrinking remaining exit budget).
+        No observation after the overall deadline, unverifiable identity,
+        or expiry alone grants exit authority. The separate Windows startup
+        join does not expand foreground-preemption or native query deadlines,
+        add a forced kill, or authorize private lease cleanup. Persisted Windows
         identity fields use the public contract's exact string tick, PID, and
         32767 UTF-16-unit path domain without numeric coercion.
       - One owned daemon-record reader bounds input to the public native
