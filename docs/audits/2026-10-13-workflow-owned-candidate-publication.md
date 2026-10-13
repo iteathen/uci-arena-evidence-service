@@ -1,0 +1,7 @@
+# Preserve the failed candidate and use workflow-owned publication
+
+Protected Windows/Node24 run38468983747 at870688771d2044b616d66646c6b6c26bcb0ae782 passed native build/tests, full service checks, idle acceptance, reproducible packaging, signing and immediate signature/predicate verification. Its publication step failed because the operator pre-created empty release `component/evidence-service/v0.3.20/windows-x86_64`, while this provider's existing workflow creates its own release. The Bot and Book pre-provisioned transport pattern was incorrectly applied to Evidence. No component assets were published or installed.
+
+The original failed run, empty prerelease and source/tag identity are retained. Deleting or retargeting that record was rejected; changing release-workflow permissions or transports is unnecessary. Version0.3.21 is selected as a fresh immutable candidate identity with the same reviewed operational implementation. Only package/lock/service version declarations change. The existing explicitly dispatched workflow must create and publish its own exact-head prerelease, without pre-creation by the operator. This is component-candidate transport, not stable suite promotion or evidence/strength qualification.
+
+Local source/metadata checks, nonauthor review, required exact-head CI, protected release and common full provenance verification remain separate gates. A failed final publication cannot be reported as a successful release merely because preceding build/signing steps passed.
