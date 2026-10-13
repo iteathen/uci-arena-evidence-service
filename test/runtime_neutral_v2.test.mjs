@@ -49,6 +49,55 @@ function clockFixture(t){
  return f;
 }
 
+function freshInstallerFixture(t){
+ const f=clockFixture(t),relative='contracts/policy.json',bytes='opaque required timing policy';
+ replaceFixtureFile(f,relative,bytes);
+ Object.assign(f.profile.uci_options,{RequireTimingPolicy:true,TimingPolicyFile:relative,TimingPolicySha256:hash(bytes)});
+ replaceFixtureFile(f,'contracts/launch.json',f.profile);
+ const fresh={...structuredClone(f.profile),component:{...f.profile.component,root:f.root},
+  engine:{...f.profile.engine,executable:path.join(f.root,'bin/engine.bin'),working_directory:f.root},
+  uci_options:{...f.profile.uci_options,TimingPolicyFile:path.join(f.root,relative),OwnBook:true,
+   BookSnapshotBinding:path.join(f.root,'state/producer-binding.json')}};
+ const context={schema:'arena_provider_install_context_v1',schema_version:1,workspace:path.join(f.root,'state'),
+  bindings:{evidence_runtime_root:f.root,engine_component_manifest:path.join(f.root,'arena-component.json'),
+   engine_launch_profile:path.join(f.root,'contracts/launch.json'),engine_configuration:fresh}};
+ return{...f,fresh,context};
+}
+
+test('fresh producer configuration forwards opaque Book options into the admitted evidence target',t=>{
+ const {fresh,context}=freshInstallerFixture(t);
+ const result=renderInstallerConfiguration(context);
+ assert.deepEqual(result.generated_documents[0].document.target.launch.uci_options,fresh.uci_options);
+ assert.deepEqual(result.generated_documents[0].document.target.clock_option_bindings,fresh.clock_option_bindings);
+});
+for(const[label,change]of[
+ ['component version',p=>{p.component.version='9.9.9';}],
+ ['component root',p=>{p.component.root=path.resolve('other-root');}],
+ ['runtime executable',p=>{p.engine.executable=path.resolve('other.exe');}],
+ ['runtime arguments',p=>{p.engine.arguments=['--eval','untrusted'];}],
+ ['runtime directory',p=>{p.engine.working_directory=path.resolve('other-root');}],
+ ['required timing policy',p=>{p.uci_options.RequireTimingPolicy=false;}],
+ ['timing file',p=>{p.uci_options.TimingPolicyFile=path.resolve('other.json');}],
+ ['timing digest',p=>{p.uci_options.TimingPolicySha256='0'.repeat(64);}],
+ ['clock declaration',p=>{delete p.clock_option_bindings;}],
+])test(`fresh evidence composition rejects changed ${label}`,t=>{
+ const{fresh,context}=freshInstallerFixture(t);change(fresh);
+ assert.throws(()=>renderInstallerConfiguration(context),/fresh|configuration/i);
+});
+test('fresh evidence configuration requires its inventoried launch profile',t=>{
+ const{context}=freshInstallerFixture(t);delete context.bindings.engine_launch_profile;
+ assert.throws(()=>renderInstallerConfiguration(context),/fresh|configuration/i);
+});
+test('fresh evidence configuration resolves only inventoried file arguments and retains clock baseline rejection',t=>{
+ const{profile,fresh,context,...f}=freshInstallerFixture(t);
+ profile.engine.arguments=['tools/evidence.mjs'];replaceFixtureFile(f,'contracts/launch.json',profile);
+ fresh.engine.arguments=[path.join(f.root,'tools/evidence.mjs')];
+ const target=renderInstallerConfiguration(context).generated_documents[0].document.target;
+ assert.deepEqual(target.launch.arguments,fresh.engine.arguments);
+ fresh.uci_options.OriginalTime='00';
+ assert.throws(()=>renderInstallerConfiguration(context),/clock baseline/i);
+});
+
 test('v2 campaign clock declaration maps original parameters into ephemeral role options, not target baseline',t=>{
  const f=clockFixture(t),target=admitRuntimeTarget(f.input),parameters={initialTimeMs:50000,incrementMs:10,candidateOptions:{Hash:32}},before=structuredClone(parameters);
  const job={id:'j',shardId:'s',adapter:'complete_game',config:{campaign:'bounded-games',parameters}};

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { lstatSync, openSync, closeSync, readFileSync, readSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 
 import { validateStoredProfile } from '../vendor/time-profile-contract/src/index.mjs';
 import { admitRuntimeTarget } from './runtime_v2_binding.mjs';
@@ -47,6 +48,36 @@ function readBoundedJson(filename, maximumBytes, label) {
     throw new Error(`${label} is not a bounded regular file`);
   }
   return JSON.parse(readFileSync(absolute, 'utf8'));
+}
+
+function freshManagedLaunch(fresh, profile, root, manifest) {
+  requireObject(fresh, 'fresh engine configuration');
+  const samePath=(actual,expected)=>typeof actual==='string'&&path.isAbsolute(actual)
+    &&path.normalize(actual)===path.normalize(expected);
+  const argumentsList=profile.engine.arguments.map(argument=>
+    manifest.files.some(row=>row.path===argument)?path.resolve(root,argument):argument);
+  if(fresh.schema!=='arena_uci_engine_launch_profile_v1'||fresh.schema_version!==1
+    ||fresh.component?.id!==manifest.component_id||fresh.component?.version!==manifest.component_version
+    ||!samePath(fresh.component?.root,root)||fresh.engine?.adapter!=='standard_uci_v1'
+    ||!samePath(fresh.engine?.executable,path.resolve(root,profile.engine.executable))
+    ||!samePath(fresh.engine?.working_directory,path.resolve(root,profile.engine.working_directory))
+    ||!isDeepStrictEqual(fresh.engine?.arguments,argumentsList)||fresh.enabled!==true
+    ||fresh.state!=='conservative'||fresh.expected_runtime!==null
+    ||!isDeepStrictEqual(fresh.clock_option_bindings,profile.clock_option_bindings)) {
+    throw new Error('fresh engine configuration differs from immutable launch authority');
+  }
+  const options=requireObject(fresh.uci_options,'fresh configuration UCI options');
+  const baseline=requireObject(profile.uci_options,'immutable configuration UCI options');
+  for(const key of ['RequireTimingPolicy','TimingPolicyFile','TimingPolicySha256']) {
+    const expected=key==='TimingPolicyFile'&&typeof baseline[key]==='string'
+      ?path.resolve(root,baseline[key]):baseline[key];
+    if(Object.hasOwn(options,key)!==Object.hasOwn(baseline,key)||options[key]!==expected)
+      throw new Error('fresh configuration differs from immutable pinned timing authority');
+  }
+  // Existing target admission owns option bounds, clock baselines and inventory.
+  // Generated Book inputs remain opaque producer-owned scalar configuration.
+  return {executable:fresh.engine.executable,arguments:[...fresh.engine.arguments],
+    working_directory:fresh.engine.working_directory,uci_options:structuredClone(options)};
 }
 
 function timingProfileConfiguration(profilePath, bindings) {
@@ -113,6 +144,8 @@ export function renderInstallerConfiguration(context) {
   const workspace = requireAbsolutePath(context.workspace, 'workspace');
   const bindings = requireObject(context.bindings, 'bindings');
   const locators = requireObject(context.locators ?? {}, 'locators');
+  if(bindings.engine_configuration!==undefined&&bindings.engine_launch_profile===undefined)
+    throw new Error('fresh configuration requires its inventoried launch profile');
   if(bindings.engine_launch_profile !== undefined) {
     if(locators.timing_profile !== undefined) throw new Error('legacy timing profile cannot be applied to the v2 managed runtime');
     const root=requireAbsolutePath(bindings.evidence_runtime_root,'bindings.evidence_runtime_root');
@@ -130,6 +163,8 @@ export function renderInstallerConfiguration(context) {
     if(!profileRow||profileRow.sha256!==sha256File(launchProfilePath).slice(7)||profileRow.size_bytes!==lstatSync(launchProfilePath).size)throw new Error('managed UCI profile is absent from exact inventory');
     const target={schema:'uci_arena_evidence_target_v2',label:manifest.component_id,launch:{executable:path.resolve(root,profile.engine.executable),
       arguments:profile.engine.arguments,working_directory:path.resolve(root,profile.engine.working_directory),uci_options:profile.uci_options??{}},runtime_binding:runtimeBinding};
+    if(bindings.engine_configuration!==undefined)
+      target.launch=freshManagedLaunch(bindings.engine_configuration,profile,root,manifest);
     const admitted=admitRuntimeTarget(target);
     target.launch=structuredClone(admitted.runtimeBinding.launch);
     if(admitted.runtimeBinding.clock_option_bindings)target.clock_option_bindings=structuredClone(admitted.runtimeBinding.clock_option_bindings);

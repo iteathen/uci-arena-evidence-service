@@ -161,27 +161,39 @@ export async function readDaemonOwnerPid(config) {
 
 export async function waitForProcessExit(
   pid,
-  {
+  options = {},
+) {
+  return waitForOwnedProcessExit(pid, options, 2_000);
+}
+
+// Windows Job Object teardown may outlive one native query interval. Startup
+// joins that exact owned process with a separate finite lifecycle deadline.
+export async function waitForStartupDrain(pid, options = {}) {
+  const timeoutMs=options.timeoutMs ?? 10_000;
+  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>10_000)return false;
+  return waitForOwnedProcessExit(pid,{...options,timeoutMs},10_000);
+}
+
+async function waitForOwnedProcessExit(pid, {
     timeoutMs = 2_000,
     pollMs = 25,
     alive = processAlive,
     identity = null,
     probe = probeProcessInstance,
     now = () => performance.now(),
-  } = {},
-) {
+  }, maximumWaitMs) {
   if (!Number.isSafeInteger(pid) || pid <= 0 || pid > 0xffff_ffff
       || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0
       || !Number.isSafeInteger(pollMs) || pollMs <= 0) return false;
   const hasIdentity = identity !== null && identity !== undefined;
   const expected = hasIdentity ? processIdentityFromJson(identity, pid) : null;
   if (hasIdentity && !expected) return false;
-  const deadline = now() + Math.min(timeoutMs, 2_000);
+  const deadline = now() + Math.min(timeoutMs, maximumWaitMs);
   while (true) {
     const remaining = Math.floor(deadline - now());
     if (remaining < 1) return false;
     if (expected) {
-      const observed = probe(pid, { timeoutMs: remaining });
+      const observed = probe(pid, { timeoutMs: Math.min(remaining, 2_000) });
       if (now() > deadline) return false;
       if (observed?.state === "absent") return true;
       const actual = observed?.state === "present"
@@ -351,8 +363,8 @@ async function uninstallWindows(config) {
       timeout: 10_000,
     });
   } catch {}
-  if (daemon?.pid && !await waitForProcessExit(daemon.pid, { identity: daemon.identity })) {
-    throw new Error(`Evidence daemon ${daemon.pid} did not stop within two seconds`);
+  if (daemon?.pid && !await waitForStartupDrain(daemon.pid, { identity: daemon.identity })) {
+    throw new Error(`Evidence daemon ${daemon.pid} did not stop within ten seconds`);
   }
   await removeDeadDaemonLock(config, daemon);
   try {
