@@ -236,7 +236,7 @@ function compactReport(report) {
       ? { path: report.publication.path, priorSha256: report.publication.prior?.sha256 ?? null }
       : null,
     resource: resource ? {
-      schema: resource.schema,
+      schema: resource.schema ?? null,
       intervalId: resource.interval_id ?? null,
       intervalStatus: resource.interval_status ?? null,
       performanceAuthority: Boolean(resource.performance_authority),

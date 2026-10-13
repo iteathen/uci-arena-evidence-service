@@ -1389,6 +1389,43 @@ test("profile list validates and projects explicit qualified imports", async (t)
   );
 });
 
+test("daemon persists an ordinary resource wait without claiming isolation or starting work", async (t) => {
+  const config = await workspace();
+  const catalog = new Catalog(config);
+  closeWorkspaceAfter(t, config, catalog);
+  const target = catalog.addTarget(targetFixture(config));
+  const datasetId = catalog.createDataset({ campaign: "resource-wait-report" });
+  const job = catalog.enqueueJob({
+    adapter: "complete_game", targetId: target.id, shardId: "blocked", datasetId,
+    config: {}, fingerprint: jobFingerprint({ test: "resource-wait-report" }),
+  });
+  const datasetBefore = catalog.dataset(datasetId);
+  // ResourceGovernor admission permits are ordinary measurements, and do not
+  // declare the GPU isolation report's schema or its qualification authority.
+  const permit = { allowed: false, mode: "backoff", reason: "workspace free space 24.0 GiB" };
+  const governor = { last: permit, async permit() { return permit; }, close() {} };
+  let starts = 0;
+  const forbiddenStart = () => { starts += 1; throw new Error("blocked work must not start"); };
+  const report = await runDaemon(catalog, config, { once: true, dependencies: {
+    governor, leaseFactory: forbiddenStart, spawnImpl: forbiddenStart, guardFactory: forbiddenStart,
+  } });
+  assert.equal(report.state, "waiting_for_resources");
+  assert.equal(starts, 0);
+  assert.equal(catalog.job(job.id).state, "waiting_for_resources");
+  assert.equal(catalog.job(job.id).waitReason, permit.reason);
+  assert.equal(catalog.job(job.id).attempts, 0);
+  assert.deepEqual(catalog.dataset(datasetId), datasetBefore);
+  const daemon = catalog.daemonState();
+  assert.equal(daemon.phase, "stopped");
+  assert.equal(daemon.lastError, "");
+  assert.equal(daemon.lastReport.state, "waiting_for_resources");
+  assert.equal(daemon.lastReport.resource.schema, null);
+  assert.equal(daemon.lastReport.resource.performanceAuthority, false);
+  assert.equal(daemon.lastReport.resource.strengthAuthority, false);
+  assert.equal(daemon.lastReport.resource.defaultTuningAuthority, false);
+  assert.equal(existsSync(path.join(config.paths.locks, "daemon.lock")), false);
+});
+
 test("daemon recovers a stale lock without disturbing an idle queue", async (t) => {
   const config = await workspace();
   const catalog = new Catalog(config);
